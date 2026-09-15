@@ -1,0 +1,6 @@
+opencv-contrib-python
+numpy
+pandas
+Pillow
+openpyxl
+psycopg[binary]

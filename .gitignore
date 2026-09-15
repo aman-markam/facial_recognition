@@ -1,0 +1,13 @@
+.venv-1/
+__pycache__/
+*.py[cod]
+
+# Local configuration and credentials
+.env
+*.env
+
+# Employee biometric and attendance data
+data/attendance.db
+data/faces/
+data/attendance/
+data/models/
