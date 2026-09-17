@@ -1,13 +1,19 @@
 .env
+*.env
 .venv/
+.venv-1/
 __pycache__/
 *.py[cod]
 pytest_cache/
 .mypy_cache/
 .vscode/
 
-# Local face embeddings may contain biometric data.
+# Local face embeddings and attendance data may contain biometric data.
 face_data/embeddings.json
+data/attendance.db
+data/faces/
+data/attendance/
+data/models/
 
 # Local database files and runtime artifacts.
 *.db
