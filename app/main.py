@@ -1,6 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import IntegrityError
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.core.error_handlers import (
+    http_exception_handler,
+    validation_exception_handler,
+    integrity_error_handler,
+    general_exception_handler,
+)
 from app.routes.appside.attendance import router as attendance_router
 from app.routes.dashboard.auth import router as dashboard_auth_router
 
@@ -20,6 +27,26 @@ app = FastAPI(
     title="Face Attendance API",
     version="1.0.0"
 )
+app.add_exception_handler(
+    HTTPException,
+    http_exception_handler
+)
+
+app.add_exception_handler(
+    RequestValidationError,
+    validation_exception_handler
+)
+
+app.add_exception_handler(
+    IntegrityError,
+    integrity_error_handler
+)
+
+app.add_exception_handler(
+    Exception,
+    general_exception_handler
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

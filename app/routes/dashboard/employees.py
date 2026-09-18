@@ -9,9 +9,10 @@ from app.schemas.employee import (
     EmployeeUpdate,
 )
 
-
-from app.core.dependencies import get_current_admin
+from app.dependencies.auth import get_current_admin
 from app.models.admin import Admin
+# from app.core.dependencies import get_current_admin
+# from app.models.admin import Admin
 
 router = APIRouter(
     prefix="/employees",
@@ -81,7 +82,10 @@ def create_employee(
     response_model=list[EmployeeResponse]
 )
 def get_employees(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(
+        get_current_admin
+    )
 ):
 
     employees = (
