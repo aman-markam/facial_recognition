@@ -52,7 +52,8 @@ class Attendance(Base):
 
     employee_id: Mapped[int] = mapped_column(
         ForeignKey(
-            "employees.id"
+            "employees.id",
+            ondelete="CASCADE",
         ),
         nullable=False,
         index=True,
@@ -97,5 +98,5 @@ class Attendance(Base):
 
     employee = relationship(
         "Employee",
-        backref="attendance_records",
+        back_populates="attendance_records",
     )

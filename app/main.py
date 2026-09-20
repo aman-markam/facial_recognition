@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import IntegrityError
+from app.core.logging_config import setup_logging
 from fastapi.middleware.cors import CORSMiddleware
+from app.routes.appside.liveness import router as liveness_router
 from app.core.error_handlers import (
     http_exception_handler,
     validation_exception_handler,
@@ -27,6 +29,7 @@ app = FastAPI(
     title="Face Attendance API",
     version="1.0.0"
 )
+setup_logging()
 app.add_exception_handler(
     HTTPException,
     http_exception_handler
@@ -64,6 +67,10 @@ app.include_router(
 
 app.include_router(
     attendance_router,
+)
+
+app.include_router(
+    liveness_router,
 )
 
 app.include_router(

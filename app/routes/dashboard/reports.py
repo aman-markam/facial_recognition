@@ -1,10 +1,11 @@
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
-from app.core.dependencies import get_current_admin
 
 from app.database.database import get_db
+from app.dependencies.auth import get_current_admin
 from app.models.attendance import Attendance
 from app.models.employee import Employee
 from app.schemas.report import (
@@ -47,7 +48,7 @@ def get_overview(
         db.query(Attendance)
         .filter(
             Attendance.attendance_date == today,
-            Attendance.status == "PRESENT"
+            Attendance.status.in_(["PRESENT", "LATE"])
         )
         .count()
     )
@@ -103,28 +104,32 @@ def get_daily_report(
         .count()
     )
 
-    results = []
+    # Aggregated query to fetch counts by date in 1 query
+    counts = (
+        db.query(
+            Attendance.attendance_date,
+            func.count(Attendance.id).label("present_count")
+        )
+        .filter(
+            Attendance.attendance_date >= start_date,
+            Attendance.attendance_date <= end_date,
+            Attendance.status.in_(["PRESENT", "LATE"])
+        )
+        .group_by(Attendance.attendance_date)
+        .all()
+    )
 
+    present_by_date = {
+        row.attendance_date: row.present_count
+        for row in counts
+    }
+
+    results = []
     current_date = start_date
 
     while current_date <= end_date:
-
-        present = (
-            db.query(Attendance)
-            .filter(
-                Attendance.attendance_date
-                == current_date,
-                Attendance.status
-                == "PRESENT"
-            )
-            .count()
-        )
-
-        absent = max(
-            total_employees - present,
-            0
-        )
-
+        present = present_by_date.get(current_date, 0)
+        absent = max(total_employees - present, 0)
         percentage = (
             (present / total_employees) * 100
             if total_employees > 0
@@ -186,7 +191,7 @@ def get_employee_report(
             Attendance.employee_id == employee_id,
             Attendance.attendance_date >= start_date,
             Attendance.attendance_date <= end_date,
-            Attendance.status == "PRESENT"
+            Attendance.status.in_(["PRESENT", "LATE"])
         )
         .count()
     )

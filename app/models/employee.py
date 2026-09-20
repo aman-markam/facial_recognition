@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import DateTime, func
 from app.database.base import Base
 
@@ -54,3 +54,9 @@ class Employee(Base):
         onupdate=func.now(),
         nullable=False
     )
+
+    attendance_records = relationship(
+        "Attendance",
+        back_populates="employee",
+        cascade="all, delete-orphan",
+    )

@@ -15,11 +15,13 @@ from app.database.database import get_db
 from app.models.employee import Employee
 from app.schemas.face import FaceEnrollmentResponse
 from app.services.face_service import face_service
+from app.dependencies.auth import get_current_admin
 
 
 router = APIRouter(
     prefix="/employees",
-    tags=["Dashboard - Face Enrollment"]
+    tags=["Dashboard - Face Enrollment"],
+    dependencies=[Depends(get_current_admin)]
 )
 
 
@@ -87,7 +89,7 @@ def face_already_enrolled(
 )
 async def enroll_employee_face(
 
-    employee_id: int,
+    employee_id: str,
 
     images: Annotated[
         list[UploadFile],
@@ -104,13 +106,18 @@ async def enroll_employee_face(
     # FIND EMPLOYEE
     # --------------------------------------
 
+    ident_str = str(employee_id)
     employee = (
         db.query(Employee)
-        .filter(
-            Employee.id == employee_id
-        )
+        .filter(Employee.employee_code == ident_str)
         .first()
     )
+    if not employee and ident_str.isdigit():
+        employee = (
+            db.query(Employee)
+            .filter(Employee.id == int(ident_str))
+            .first()
+        )
 
 
     if not employee:
@@ -293,6 +300,13 @@ async def enroll_employee_face(
             embedding
         )
 
+    except ValueError as e:
+
+        raise HTTPException(
+            status_code=409,
+            detail=str(e)
+        )
+
     except Exception as e:
 
         print(
@@ -302,7 +316,7 @@ async def enroll_employee_face(
 
         raise HTTPException(
             status_code=500,
-            detail=(
+            detail=str(e) or (
                 "Failed to save face enrollment"
             )
         )

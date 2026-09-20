@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 from app.models.employee import Employee
+from app.models.attendance import Attendance
 from app.schemas.employee import (
     EmployeeCreate,
     EmployeeResponse,
@@ -11,8 +12,7 @@ from app.schemas.employee import (
 
 from app.dependencies.auth import get_current_admin
 from app.models.admin import Admin
-# from app.core.dependencies import get_current_admin
-# from app.models.admin import Admin
+from app.services.face_service import face_service
 
 router = APIRouter(
     prefix="/employees",
@@ -97,22 +97,41 @@ def get_employees(
     return employees
 
 
+def _find_employee(db: Session, identifier: str | int) -> Employee | None:
+    ident_str = str(identifier)
+
+    # 1. Search by employee_code first (e.g. "002", "EMP001")
+    employee = (
+        db.query(Employee)
+        .filter(Employee.employee_code == ident_str)
+        .first()
+    )
+    if employee:
+        return employee
+
+    # 2. Search by primary key ID if numeric
+    if ident_str.isdigit():
+        employee = (
+            db.query(Employee)
+            .filter(Employee.id == int(ident_str))
+            .first()
+        )
+        if employee:
+            return employee
+
+    return None
+
+
 @router.get(
     "/{employee_id}",
     response_model=EmployeeResponse
 )
 def get_employee(
-    employee_id: int,
+    employee_id: str,
     db: Session = Depends(get_db)
 ):
 
-    employee = (
-        db.query(Employee)
-        .filter(
-            Employee.id == employee_id
-        )
-        .first()
-    )
+    employee = _find_employee(db, employee_id)
 
     if not employee:
         raise HTTPException(
@@ -128,18 +147,12 @@ def get_employee(
     response_model=EmployeeResponse
 )
 def update_employee(
-    employee_id: int,
+    employee_id: str,
     employee_data: EmployeeUpdate,
     db: Session = Depends(get_db)
 ):
 
-    employee = (
-        db.query(Employee)
-        .filter(
-            Employee.id == employee_id
-        )
-        .first()
-    )
+    employee = _find_employee(db, employee_id)
 
     if not employee:
         raise HTTPException(
@@ -169,17 +182,11 @@ def update_employee(
     "/{employee_id}"
 )
 def delete_employee(
-    employee_id: int,
+    employee_id: str,
     db: Session = Depends(get_db)
 ):
 
-    employee = (
-        db.query(Employee)
-        .filter(
-            Employee.id == employee_id
-        )
-        .first()
-    )
+    employee = _find_employee(db, employee_id)
 
     if not employee:
         raise HTTPException(
@@ -187,10 +194,21 @@ def delete_employee(
             detail="Employee not found"
         )
 
+    employee_code = employee.employee_code
+
+    db.query(Attendance).filter(
+        Attendance.employee_id == employee.id
+    ).delete(synchronize_session=False)
+
     db.delete(employee)
     db.commit()
+
+    try:
+        face_service.delete_embedding(employee_code)
+    except Exception:
+        pass
 
     return {
         "success": True,
         "message": "Employee deleted successfully"
-    }
+    }

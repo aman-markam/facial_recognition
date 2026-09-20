@@ -24,21 +24,6 @@ def capture_faces(
 			gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 			faces = cascade.detectMultiScale(gray, 1.2, 5, minSize=(100, 100))
 			for x, y, width, height in faces[:1]:
-				face_bgr = frame[y : y + height, x : x + width]
-				if face_bgr.size == 0:
-					continue
-
-				# Skin ratio & occlusion check
-				ycrcb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2YCrCb)
-				skin_mask = cv2.inRange(ycrcb, (0, 133, 77), (255, 173, 127))
-				skin_ratio = float(cv2.countNonZero(skin_mask)) / (float(face_bgr.shape[0] * face_bgr.shape[1]) + 1e-6)
-				occlusion_pct = max(0.0, (1.0 - (skin_ratio / 0.80)) * 100.0)
-
-				if occlusion_pct > 30.0:
-					cv2.rectangle(frame, (x, y), (x + width, y + height), (0, 0, 255), 2)
-					cv2.putText(frame, f"FACE COVERED ({int(occlusion_pct)}%) - UNCOVER FACE", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-					continue
-
 				captured += 1
 				face = gray[y : y + height, x : x + width]
 				cv2.imwrite(str(output_dir / f"{captured:03d}.jpg"), face)

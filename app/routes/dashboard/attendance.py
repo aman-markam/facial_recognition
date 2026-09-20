@@ -15,11 +15,13 @@ from app.schemas.attendance import (
     AttendanceEmployeeResponse,
     AttendanceSummary,
 )
+from app.dependencies.auth import get_current_admin
 
 
 router = APIRouter(
     prefix="/attendance",
-    tags=["Dashboard Attendance"]
+    tags=["Dashboard Attendance"],
+    dependencies=[Depends(get_current_admin)]
 )
 
 

@@ -9,11 +9,15 @@ pytest_cache/
 .vscode/
 
 # Local face embeddings and attendance data may contain biometric data.
-face_data/embeddings.json
+face_data/
 data/attendance.db
 data/faces/
 data/attendance/
 data/models/
+
+# Local webcam captures and test artifacts.
+test_images/webcam_frames/
+test_images/*.jpg
 
 # Local database files and runtime artifacts.
 *.db

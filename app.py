@@ -98,9 +98,17 @@ class AttendanceApp(tk.Tk):
 
     def take_attendance(self) -> None:
         try:
-            result = attendance.recognize_once(CASCADE)
+            choice = messagebox.askyesnocancel(
+                "Kiosk Attendance Mode",
+                "Select Attendance Action:\n\n• Click 'Yes' for CHECK IN\n• Click 'No' for CHECK OUT\n• Click 'Cancel' to abort",
+            )
+            if choice is None:
+                self.status.configure(text="Attendance cancelled.")
+                return
+            action = "check_in" if choice else "check_out"
+            result = attendance.recognize_once(action=action)
             self.status.configure(text=result or "Attendance cancelled.")
-        except (RuntimeError, cv2.error) as error:
+        except (RuntimeError, cv2.error, Exception) as error:
             messagebox.showerror("Attendance failed", str(error))
 
     def view_attendance(self) -> None:

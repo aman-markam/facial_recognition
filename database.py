@@ -70,15 +70,17 @@ def get_employees() -> dict[str, str]:
 	return {str(row["employee_id"]): row["name"] for row in rows}
 
 
-def record_attendance(employee_id: str, name: str) -> bool:
+def record_attendance(employee_id: str, name: str, action: str = "check_in") -> tuple[bool, str]:
 	now = datetime.now()
+	act = (action or "check_in").lower().strip()
+	action_label = "Check-out" if act in ["check_out", "checkout", "out"] else "Check-in"
 	with connect() as connection:
 		existing = connection.execute(
 			"SELECT 1 FROM attendance WHERE employee_id = %s AND attendance_date = %s LIMIT 1",
 			(employee_id, now.date()),
 		).fetchone()
-		if existing:
-			return False
+		if existing and act not in ["check_out", "checkout", "out"]:
+			return False, f"Already recorded today: {employee_id} - {name}"
 		connection.execute(
 			"""
 			INSERT INTO attendance(employee_id, name, attended_at, attendance_date)
@@ -86,7 +88,7 @@ def record_attendance(employee_id: str, name: str) -> bool:
 			""",
 			(employee_id, name, now, now.date()),
 		)
-	return True
+	return True, f"{action_label} successful: {employee_id} - {name}"
 
 
 def attendance_rows() -> list[dict[str, str]]:
