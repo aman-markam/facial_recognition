@@ -1368,12 +1368,18 @@ class MultiFaceTracker:
             len(employees)
         )
 
+        total_faces_detected = sum(
+            len(track["observations"]) for track in final_tracks
+        )
+
         return {
             "success": True,
 
             "message": (
                 f"Processed {REQUIRED_FRAMES} frames"
             ),
+
+            "total_faces": total_faces_detected,
 
             "total_tracks": len(
                 final_tracks

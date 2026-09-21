@@ -484,7 +484,7 @@ async def mark_multiple_attendance(
     # ========================================================
 
     employees_to_attendance = tracking_result.get(
-        "employees_to_attendance",
+        "employees",
         []
     )
 

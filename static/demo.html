@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Face Attendance Demo</title>
+<style>
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --success: #16a34a;
+  --success-light: #dcfce7;
+  --warning: #f59e0b;
+  --warning-light: #fef3c7;
+  --error: #dc2626;
+  --error-light: #fee2e2;
+  --neutral-50: #f8fafc;
+  --neutral-100: #f1f5f9;
+  --neutral-200: #e2e8f0;
+  --neutral-300: #cbd5e1;
+  --neutral-500: #64748b;
+  --neutral-700: #334155;
+  --neutral-800: #1e293b;
+  --neutral-900: #0f172a;
+  --radius: 12px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.08);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.12);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--neutral-100);
+  color: var(--neutral-800);
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--neutral-900);
+  margin-bottom: 8px;
+}
+
+header p {
+  font-size: 15px;
+  color: var(--neutral-500);
+  line-height: 1.5;
+}
+
+.card {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 28px;
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--neutral-900);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title .badge {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 10px;
+  border-radius: 20px;
+  background: var(--neutral-100);
+  color: var(--neutral-500);
+}
+
+/* API URL config */
+.config-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.config-row label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--neutral-700);
+  white-space: nowrap;
+}
+
+.config-row input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--neutral-300);
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.config-row input:focus {
+  border-color: var(--primary);
+}
+
+/* Video + canvas */
+.video-wrapper {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--neutral-900);
+  aspect-ratio: 16/9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#video, #canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+#video.hidden, #canvas.hidden { display: none; }
+
+.overlay-text {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.capture-indicator {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+}
+
+.capture-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--neutral-500);
+  transition: background 0.3s;
+}
+
+.capture-dot.active {
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(22,163,74,0.6);
+}
+
+/* Buttons */
+.btn-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-dark);
+}
+
+.btn-secondary {
+  background: var(--neutral-200);
+  color: var(--neutral-700);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--neutral-300);
+}
+
+.btn-danger {
+  background: var(--error);
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+/* Status */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-top: 16px;
+  transition: all 0.3s;
+}
+
+.status-bar.idle {
+  background: var(--neutral-100);
+  color: var(--neutral-500);
+}
+
+.status-bar.info {
+  background: #eff6ff;
+  color: var(--primary);
+}
+
+.status-bar.success {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.status-bar.error {
+  background: var(--error-light);
+  color: var(--error);
+}
+
+.status-bar.warning {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Results */
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.result-card {
+  border: 1px solid var(--neutral-200);
+  border-radius: 10px;
+  padding: 20px;
+  transition: border-color 0.2s;
+}
+
+.result-card.success {
+  border-color: var(--success);
+  background: var(--success-light);
+}
+
+.result-card.fail {
+  border-color: var(--error);
+  background: var(--error-light);
+}
+
+.result-card .emp-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--neutral-900);
+  margin-bottom: 4px;
+}
+
+.result-card .emp-id {
+  font-size: 13px;
+  color: var(--neutral-500);
+  margin-bottom: 12px;
+}
+
+.result-card .detail-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--neutral-200);
+}
+
+.result-card .detail-row:last-child {
+  border-bottom: none;
+}
+
+.result-card .detail-label {
+  color: var(--neutral-500);
+}
+
+.result-card .detail-value {
+  font-weight: 600;
+  color: var(--neutral-800);
+}
+
+.action-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.action-tag.check_in {
+  background: var(--success);
+  color: white;
+}
+
+.action-tag.check_out {
+  background: var(--warning);
+  color: white;
+}
+
+.action-tag.none {
+  background: var(--neutral-300);
+  color: var(--neutral-700);
+}
+
+/* Summary */
+.summary-box {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.summary-stat {
+  text-align: center;
+}
+
+.summary-stat .stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--neutral-900);
+}
+
+.summary-stat .stat-label {
+  font-size: 13px;
+  color: var(--neutral-500);
+  margin-top: 4px;
+}
+
+/* Frame thumbnails */
+.frame-thumbs {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.frame-thumb {
+  width: 80px;
+  height: 60px;
+  border-radius: 6px;
+  border: 2px solid var(--neutral-200);
+  object-fit: cover;
+}
+
+.frame-thumb.captured {
+  border-color: var(--success);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  body { padding: 12px; }
+  .card { padding: 16px; }
+  header h1 { font-size: 22px; }
+  .config-row { flex-direction: column; align-items: stretch; }
+  .config-row label { margin-bottom: 4px; }
+  .results-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Multi-Face Attendance Demo</h1>
+    <p>Capture 5 frames from your webcam. The system detects all faces, verifies liveness, recognizes each person, and marks attendance for everyone at once.</p>
+  </header>
+
+  <!-- API Config -->
+  <div class="card">
+    <div class="section-title">API Configuration <span class="badge">optional</span></div>
+    <div class="config-row">
+      <label for="apiUrl">Server URL</label>
+      <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+    </div>
+    <p style="font-size:13px;color:var(--neutral-500);">The demo calls <code>/api/v1/appside/attendance/mark-multiple</code> on the server above. Make sure your FastAPI backend is running.</p>
+  </div>
+
+  <!-- Camera -->
+  <div class="card">
+    <div class="section-title">Camera <span class="badge" id="cameraStatus">off</span></div>
+    <div class="video-wrapper">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas" class="hidden"></canvas>
+      <div class="overlay-text" id="overlayText">Camera off</div>
+      <div class="capture-indicator" id="captureIndicator">
+        <div class="capture-dot" data-frame="0"></div>
+        <div class="capture-dot" data-frame="1"></div>
+        <div class="capture-dot" data-frame="2"></div>
+        <div class="capture-dot" data-frame="3"></div>
+        <div class="capture-dot" data-frame="4"></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="startCameraBtn">Start Camera</button>
+      <button class="btn btn-secondary" id="captureBtn" disabled>Capture & Mark Attendance</button>
+      <button class="btn btn-danger" id="stopCameraBtn" disabled>Stop Camera</button>
+    </div>
+    <div class="frame-thumbs" id="frameThumbs"></div>
+    <div class="status-bar idle" id="statusBar">
+      <span id="statusText">Click "Start Camera" to begin.</span>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="card" id="resultsCard" style="display:none;">
+    <div class="section-title">Attendance Results</div>
+    <div class="summary-box" id="summaryBox"></div>
+    <div class="results-grid" id="resultsGrid"></div>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const startBtn = document.getElementById('startCameraBtn');
+const captureBtn = document.getElementById('captureBtn');
+const stopBtn = document.getElementById('stopCameraBtn');
+const statusText = document.getElementById('statusText');
+const statusBar = document.getElementById('statusBar');
+const overlayText = document.getElementById('overlayText');
+const cameraStatus = document.getElementById('cameraStatus');
+const captureIndicator = document.getElementById('captureIndicator');
+const frameThumbs = document.getElementById('frameThumbs');
+const resultsCard = document.getElementById('resultsCard');
+const summaryBox = document.getElementById('summaryBox');
+const resultsGrid = document.getElementById('resultsGrid');
+const apiUrlInput = document.getElementById('apiUrl');
+
+let stream = null;
+let isCapturing = false;
+
+function setStatus(message, type) {
+  statusText.textContent = message;
+  statusBar.className = 'status-bar ' + type;
+  if (type === 'info') {
+    statusBar.innerHTML = '<div class="spinner"></div><span>' + message + '</span>';
+  }
+}
+
+function getApiUrl() {
+  return apiUrlInput.value.replace(/\/+$/, '');
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720 }
+    });
+    video.srcObject = stream;
+    video.classList.remove('hidden');
+    canvas.classList.add('hidden');
+    startBtn.disabled = true;
+    captureBtn.disabled = false;
+    stopBtn.disabled = false;
+    cameraStatus.textContent = 'on';
+    cameraStatus.style.background = 'var(--success-light)';
+    cameraStatus.style.color = 'var(--success)';
+    overlayText.textContent = 'Live preview';
+    setStatus('Camera is ready. Position one or more people in frame, then click "Capture & Mark Attendance".', 'info');
+    statusBar.innerHTML = '<span>' + statusText.textContent + '</span>';
+  } catch (err) {
+    setStatus('Could not access camera: ' + err.message, 'error');
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  video.classList.add('hidden');
+  canvas.classList.add('hidden');
+  startBtn.disabled = false;
+  captureBtn.disabled = true;
+  stopBtn.disabled = true;
+  cameraStatus.textContent = 'off';
+  cameraStatus.style.background = '';
+  cameraStatus.style.color = '';
+  overlayText.textContent = 'Camera off';
+  setStatus('Camera stopped.', 'idle');
+}
+
+function captureFrame() {
+  canvas.width = video.videoWidth || 1280;
+  canvas.height = video.videoHeight || 720;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return new Promise(resolve => {
+    canvas.toBlob(blob => {
+      resolve(blob);
+    }, 'image/jpeg', 0.9);
+  });
+}
+
+function resetDots() {
+  captureIndicator.querySelectorAll('.capture-dot').forEach(d => {
+    d.classList.remove('active');
+  });
+  frameThumbs.innerHTML = '';
+}
+
+async function captureAndMark() {
+  if (isCapturing) return;
+  isCapturing = true;
+  captureBtn.disabled = true;
+  stopBtn.disabled = true;
+  resetDots();
+
+  const frames = [];
+  const CAPTURE_COUNT = 5;
+  const CAPTURE_INTERVAL = 400;
+
+  setStatus('Capturing ' + CAPTURE_COUNT + ' frames...', 'info');
+
+  for (let i = 0; i < CAPTURE_COUNT; i++) {
+    const blob = await captureFrame();
+    frames.push(blob);
+
+    // Show thumbnail
+    const thumbUrl = URL.createObjectURL(blob);
+    const img = document.createElement('img');
+    img.src = thumbUrl;
+    img.className = 'frame-thumb captured';
+    frameThumbs.appendChild(img);
+
+    // Light up dot
+    const dot = captureIndicator.querySelector('[data-frame="' + i + '"]');
+    if (dot) dot.classList.add('active');
+
+    overlayText.textContent = 'Capturing frame ' + (i + 1) + '/' + CAPTURE_COUNT;
+
+    if (i < CAPTURE_COUNT - 1) {
+      await new Promise(r => setTimeout(r, CAPTURE_INTERVAL));
+    }
+  }
+
+  overlayText.textContent = 'Processing...';
+  setStatus('Sending frames to server for multi-face recognition...', 'info');
+
+  // Build FormData
+  const formData = new FormData();
+  frames.forEach((blob, i) => {
+    formData.append('images', blob, 'frame_' + i + '.jpg');
+  });
+
+  const baseUrl = getApiUrl();
+  const endpoint = baseUrl + '/api/v1/appside/attendance/mark-multiple';
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body: formData
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setStatus('Server error: ' + (data.detail || data.message || 'Unknown error'), 'error');
+      overlayText.textContent = 'Error';
+      return;
+    }
+
+    displayResults(data);
+    overlayText.textContent = 'Done';
+  } catch (err) {
+    setStatus('Request failed: ' + err.message + '. Is the server running at ' + baseUrl + '?', 'error');
+    overlayText.textContent = 'Error';
+  } finally {
+    isCapturing = false;
+    captureBtn.disabled = false;
+    stopBtn.disabled = false;
+  }
+}
+
+function displayResults(data) {
+  resultsCard.style.display = '';
+
+  const processed = data.processed_employees || [];
+  const successCount = data.successful_count || 0;
+  const totalCount = processed.length;
+  const totalFaces = data.total_faces || 0;
+  const totalTracks = data.total_tracks || 0;
+
+  // Summary
+  summaryBox.innerHTML = '';
+  const stats = [
+    { value: totalFaces, label: 'Faces Detected' },
+    { value: totalTracks, label: 'People Tracked' },
+    { value: totalCount, label: 'Recognized' },
+    { value: successCount, label: 'Attendance Marked' }
+  ];
+  stats.forEach(s => {
+    const div = document.createElement('div');
+    div.className = 'summary-stat';
+    div.innerHTML = '<div class="stat-value">' + s.value + '</div><div class="stat-label">' + s.label + '</div>';
+    summaryBox.appendChild(div);
+  });
+
+  // Result cards
+  resultsGrid.innerHTML = '';
+
+  if (totalCount === 0) {
+    resultsGrid.innerHTML = '<p style="color:var(--neutral-500);padding:16px;">No employees were recognized. Make sure faces are enrolled first via the dashboard.</p>';
+    setStatus(data.message || 'No eligible employees found.', 'warning');
+    return;
+  }
+
+  processed.forEach(emp => {
+    const card = document.createElement('div');
+    card.className = 'result-card ' + (emp.success ? 'success' : 'fail');
+
+    const actionTag = emp.action
+      ? '<span class="action-tag ' + emp.action + '">' + emp.action.replace('_', ' ') + '</span>'
+      : '<span class="action-tag none">no action</span>';
+
+    let details = '';
+    if (emp.check_in) {
+      const ci = formatTime(emp.check_in);
+      details += '<div class="detail-row"><span class="detail-label">Check In</span><span class="detail-value">' + ci + '</span></div>';
+    }
+    if (emp.check_out) {
+      const co = formatTime(emp.check_out);
+      details += '<div class="detail-row"><span class="detail-label">Check Out</span><span class="detail-value">' + co + '</span></div>';
+    }
+    if (emp.working_minutes !== null && emp.working_minutes !== undefined) {
+      details += '<div class="detail-row"><span class="detail-label">Worked</span><span class="detail-value">' + emp.working_minutes + ' min</span></div>';
+    }
+    if (emp.status) {
+      details += '<div class="detail-row"><span class="detail-label">Status</span><span class="detail-value">' + emp.status + '</span></div>';
+    }
+    if (emp.confidence !== undefined && emp.confidence !== null) {
+      details += '<div class="detail-row"><span class="detail-label">Confidence</span><span class="detail-value">' + (emp.confidence * 100).toFixed(1) + '%</span></div>';
+    }
+    if (emp.liveness_average !== undefined && emp.liveness_average !== null) {
+      details += '<div class="detail-row"><span class="detail-label">Liveness</span><span class="detail-value">' + (emp.liveness_average * 100).toFixed(1) + '%</span></div>';
+    }
+    if (emp.live_frames !== undefined) {
+      details += '<div class="detail-row"><span class="detail-label">Live Frames</span><span class="detail-value">' + emp.live_frames + '/' + emp.total_frames + '</span></div>';
+    }
+
+    card.innerHTML = `
+      <div class="emp-name">${emp.employee_name || emp.employee_id || 'Unknown'}</div>
+      <div class="emp-id">ID: ${emp.employee_id || 'N/A'}</div>
+      <div style="margin-bottom:12px;">${actionTag} <span style="font-size:13px;color:var(--neutral-500);">${emp.message || ''}</span></div>
+      ${details}
+    `;
+    resultsGrid.appendChild(card);
+  });
+
+  if (successCount > 0) {
+    setStatus('Attendance marked for ' + successCount + ' of ' + totalCount + ' employee(s).', 'success');
+  } else {
+    setStatus('No attendance was marked. ' + (data.message || ''), 'warning');
+  }
+}
+
+function formatTime(t) {
+  if (!t) return 'N/A';
+  if (typeof t === 'string') return t;
+  return String(t);
+}
+
+// Event listeners
+startBtn.addEventListener('click', startCamera);
+stopBtn.addEventListener('click', stopCamera);
+captureBtn.addEventListener('click', captureAndMark);
+</script>
+</body>
+</html>

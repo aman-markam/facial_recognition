@@ -1,8 +1,11 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 from app.core.logging_config import setup_logging
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from pathlib import Path
 from app.routes.appside.liveness import router as liveness_router
 from app.core.error_handlers import (
     http_exception_handler,
@@ -89,6 +92,18 @@ app.include_router(
     dashboard_face_router,
     prefix="/api/v1/dashboard"
 )
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/demo", response_class=HTMLResponse)
+def demo():
+    demo_path = STATIC_DIR / "demo.html"
+    return HTMLResponse(content=demo_path.read_text(encoding="utf-8"))
+
+
 @app.get("/")
 def root():
 
