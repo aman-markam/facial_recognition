@@ -1,14 +1,46 @@
+import cv2
+import numpy as np
 from fastapi import APIRouter, File, UploadFile
-
-from app.services.multiframe_liveness_service import (
-    multiframe_liveness_service,
-)
-
+from app.services.liveness_engine import LivenessEngine
+from app.services.multiframe_liveness_service import multiframe_liveness_service
 
 router = APIRouter(
     prefix="/api/v1/appside/liveness",
     tags=["Appside Liveness"],
 )
+
+liveness_engine = LivenessEngine()
+
+
+@router.post("/verify-single")
+async def verify_single_image_liveness(
+    image: UploadFile = File(...)
+):
+    """
+    Verify multi-face liveness on a single image frame using Phase 4.5 pipeline:
+    - FaceAttributeEngine (Mask / Sunglasses)
+    - HandDetectionEngine (MediaPipe Hands overlap)
+    - InsightFace Liveness Addon
+    - AntiSpoofEngine (MiniFASNet presentation attack detection)
+    """
+    image_bytes = await image.read()
+    if not image_bytes:
+        return {
+            "success": False,
+            "message": "Empty image file"
+        }
+
+    image_array = np.frombuffer(image_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        return {
+            "success": False,
+            "message": "Could not decode image"
+        }
+
+    response = liveness_engine.analyze_image(frame)
+    return response.model_dump()
 
 
 @router.post("/verify")
@@ -16,25 +48,9 @@ async def verify_liveness(
     images: list[UploadFile] = File(...)
 ):
     """
-    Verify whether the submitted frames belong to a live person.
-
-    Expected:
-        Exactly 5 image files.
-
-    This endpoint:
-        - accepts image files
-        - performs multi-frame liveness
-        - does NOT perform face recognition
-        - does NOT mark attendance
+    Verify whether the submitted 5 frames belong to a live person.
     """
-
-    required_frames = (
-        multiframe_liveness_service.required_frames
-    )
-
-    # ==========================================
-    # Validate number of files
-    # ==========================================
+    required_frames = multiframe_liveness_service.required_frames
 
     if len(images) != required_frames:
         return {
@@ -45,70 +61,27 @@ async def verify_liveness(
             "spoof_frames": len(images),
             "scores": [],
             "average_score": 0.0,
-            "message": (
-                f"Exactly {required_frames} image files "
-                f"are required"
-            ),
+            "message": f"Exactly {required_frames} image files are required",
         }
 
-    # ==========================================
-    # Read uploaded files
-    # ==========================================
-
     image_frames = []
-
-    for index, image in enumerate(
-        images,
-        start=1,
-    ):
-
-        # --------------------------------------
-        # Validate content type
-        # --------------------------------------
-
-        if not image.content_type:
+    for index, image in enumerate(images, start=1):
+        if not image.content_type or not image.content_type.startswith("image/"):
             return {
                 "success": False,
                 "is_live": False,
-                "message": (
-                    f"Frame {index} has no content type"
-                ),
+                "message": f"Frame {index} must be a valid image file",
             }
-
-        if not image.content_type.startswith("image/"):
-            return {
-                "success": False,
-                "is_live": False,
-                "message": (
-                    f"Frame {index} must be an image file"
-                ),
-            }
-
-        # --------------------------------------
-        # Read file bytes
-        # --------------------------------------
 
         image_bytes = await image.read()
-
         if not image_bytes:
             return {
                 "success": False,
                 "is_live": False,
-                "message": (
-                    f"Frame {index} is empty"
-                ),
+                "message": f"Frame {index} is empty",
             }
 
         image_frames.append(image_bytes)
 
-    # ==========================================
-    # Run multi-frame liveness
-    # ==========================================
-
-    result = (
-        multiframe_liveness_service.check_frames(
-            image_frames
-        )
-    )
-
+    result = multiframe_liveness_service.check_frames(image_frames)
     return result

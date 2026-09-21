@@ -18,3 +18,5 @@ python-multipart
 python-jose[cryptography]
 passlib[bcrypt]
 filelock
+mediapipe
+
