@@ -19,7 +19,7 @@ EMBEDDINGS_PATH = (
 )
 
 # Face recognition threshold
-THRESHOLD = 0.55
+THRESHOLD = 0.50
 
 # InsightFace liveness threshold
 LIVE_THRESHOLD = 0.80

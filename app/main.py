@@ -26,8 +26,10 @@ from app.routes.dashboard.reports import (
     router as dashboard_reports_router
 )
 from app.routes.dashboard.face import (
-    router as dashboard_face_router
+    router as dashboard_face_router,
+    face_direct_router
 )
+
 app = FastAPI(
     title="Face Attendance API",
     version="1.0.0"
@@ -90,6 +92,10 @@ app.include_router(
 )
 app.include_router(
     dashboard_face_router,
+    prefix="/api/v1/dashboard"
+)
+app.include_router(
+    face_direct_router,
     prefix="/api/v1/dashboard"
 )
 

@@ -42,6 +42,13 @@ BACKUP_PATH = (
 logger = logging.getLogger(__name__)
 
 
+def normalize_embedding(embedding: np.ndarray) -> np.ndarray:
+    norm = np.linalg.norm(embedding)
+    if norm == 0:
+        return embedding
+    return embedding / norm
+
+
 class FaceService:
 
     def __init__(self):
@@ -126,10 +133,7 @@ class FaceService:
                 "Unable to generate face embedding"
             )
 
-        embedding = embedding / (
-            np.linalg.norm(embedding)
-            + 1e-10
-        )
+        embedding = normalize_embedding(np.array(embedding, dtype=np.float32))
 
         return embedding
 
@@ -192,15 +196,7 @@ class FaceService:
             axis=0
         )
 
-        average_embedding = (
-            average_embedding /
-            (
-                np.linalg.norm(
-                    average_embedding
-                )
-                + 1e-10
-            )
-        )
+        average_embedding = normalize_embedding(average_embedding)
 
         return average_embedding.tolist()
 

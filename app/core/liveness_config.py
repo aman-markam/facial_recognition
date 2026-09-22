@@ -22,7 +22,7 @@ class LivenessConfig(BaseSettings):
     HAND_FACE_OVERLAP_THRESHOLD: float = 0.15
 
     # Face recognition matching threshold
-    FACE_RECOGNITION_THRESHOLD: float = 0.55
+    FACE_RECOGNITION_THRESHOLD: float = 0.50
 
     # Maximum allowed faces in a frame
     MAX_FACES: int = 10

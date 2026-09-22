@@ -89,17 +89,73 @@ class MultiFaceEngine:
         b = b / (np.linalg.norm(b) + 1e-10)
         return float(np.dot(a, b))
 
-    def find_best_match(self, embedding):
-        best_employee = None
-        best_score = -1.0
+    def find_best_match(self, embedding, threshold: float = 0.50):
+        if not self.embeddings or embedding is None:
+            return None, 0.0
 
-        for employee_id, stored_embedding in self.embeddings.items():
-            score = self.cosine_similarity(embedding, stored_embedding)
-            if score > best_score:
-                best_score = score
-                best_employee = employee_id
+        emp_ids = list(self.embeddings.keys())
+        matrix_embeddings = np.array([self.embeddings[emp_id] for emp_id in emp_ids], dtype=np.float32)
 
-        return best_employee, best_score
+        norm = np.linalg.norm(embedding)
+        norm_emb = (embedding / norm) if norm > 0 else embedding
+
+        scores = np.dot(matrix_embeddings, norm_emb)
+        best_idx = int(np.argmax(scores))
+        best_score = float(scores[best_idx])
+
+        if best_score >= threshold:
+            return emp_ids[best_idx], best_score
+        return None, best_score
+
+
+def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 0.50, app=None):
+    """
+    Detect and recognize all faces in a frame at once using fast vectorized dot product matching.
+    """
+    if app is None:
+        from insightface.app import FaceAnalysis
+        app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        app.prepare(ctx_id=-1, det_size=(960, 960))
+
+    faces = app.get(frame)
+    results = []
+
+    emp_ids = list(loaded_embeddings.keys())
+    if not emp_ids:
+        for face in faces:
+            results.append({
+                "bbox": face.bbox.astype(int).tolist(),
+                "employee_id": "Unknown",
+                "confidence": 0.0
+            })
+        return results
+
+    matrix_embeddings = np.array([loaded_embeddings[emp_id] for emp_id in emp_ids], dtype=np.float32)
+
+    for face in faces:
+        emb = getattr(face, "embedding", None)
+        if emb is None:
+            continue
+
+        norm = np.linalg.norm(emb)
+        norm_emb = emb / norm if norm > 0 else emb
+
+        scores = np.dot(matrix_embeddings, norm_emb)
+        best_idx = int(np.argmax(scores))
+        best_score = float(scores[best_idx])
+
+        if best_score >= threshold:
+            matched_emp = emp_ids[best_idx]
+        else:
+            matched_emp = "Unknown"
+
+        results.append({
+            "bbox": face.bbox.astype(int).tolist(),
+            "employee_id": matched_emp,
+            "confidence": round(best_score, 4)
+        })
+
+    return results
 
     @staticmethod
     def estimate_head_pose(face) -> tuple[float, float, float]:

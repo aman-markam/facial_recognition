@@ -322,6 +322,18 @@ async def enroll_employee_face(
         )
 
 
+        # --------------------------------------
+        # RELOAD ACTIVE VECTOR MEMORY CACHE
+        # --------------------------------------
+        try:
+            from face_engine import FaceEngine
+            from app.routes.appside.attendance import multi_face_tracker, face_engine
+            face_engine.reload_embeddings()
+            if hasattr(multi_face_tracker, "multiface_engine"):
+                multi_face_tracker.multiface_engine.reload_embeddings()
+        except Exception as exc:
+            print("Notice: Error auto-reloading memory cache:", exc)
+
     # --------------------------------------
     # RESPONSE
     # --------------------------------------
@@ -335,4 +347,48 @@ async def enroll_employee_face(
             f"Face enrolled successfully "
             f"using {len(images)} images"
         )
+    }
+
+
+# ==========================================
+# RELOAD EMBEDDINGS ENDPOINT
+# ==========================================
+
+face_direct_router = APIRouter(
+    prefix="/face",
+    tags=["Dashboard - Face Enrollment"],
+    dependencies=[Depends(get_current_admin)]
+)
+
+
+@router.post(
+    "/reload-embeddings",
+    tags=["Dashboard - Face Enrollment"]
+)
+@face_direct_router.post(
+    "/reload-embeddings",
+    tags=["Dashboard - Face Enrollment"]
+)
+async def reload_face_embeddings():
+    """
+    Reload face enrollment vectors from face_data/embeddings.json into active memory cache.
+    """
+    from face_engine import FaceEngine
+    from app.routes.appside.attendance import multi_face_tracker, face_engine
+
+    try:
+        face_engine.reload_embeddings()
+        count = len(face_engine.embeddings)
+        if hasattr(multi_face_tracker, "multiface_engine"):
+            multi_face_tracker.multiface_engine.reload_embeddings()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reload face embeddings: {str(e)}"
+        )
+
+    return {
+        "success": True,
+        "message": "Successfully reloaded face embeddings into active cache.",
+        "employee_count": count
     }
