@@ -24,10 +24,10 @@ THRESHOLD = 0.55
 # InsightFace liveness threshold
 LIVE_THRESHOLD = 0.80
 
-# Face quality
-MIN_FACE_WIDTH = 80
-MIN_FACE_HEIGHT = 80
-MIN_IOD = 35.0
+# Face quality (lowered limits for distant face detection)
+MIN_FACE_WIDTH = 40
+MIN_FACE_HEIGHT = 40
+MIN_IOD = 20.0
 
 # Lighting
 MIN_BRIGHTNESS = 15
@@ -83,7 +83,7 @@ class FaceEngine:
 
         self.app.prepare(
             ctx_id=-1,
-            det_size=(640, 640)
+            det_size=(960, 960)
         )
 
         self.embeddings = (

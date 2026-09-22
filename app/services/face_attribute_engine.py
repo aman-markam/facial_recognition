@@ -40,10 +40,10 @@ class FaceAttributeEngine:
 
         face_crop = image[y1:y2, x1:x2]
 
-        # 1. Lower face mask detection via skin color & edge density
-        mask_prob = self._detect_mask(face_crop)
+        # 1. Lower & mid face occlusion detection (mask, scarf, cloth, bandana)
+        mask_prob = self._detect_mask_or_cloth(face_crop)
         
-        # 2. Upper face sunglasses detection via darkness & brightness distribution
+        # 2. Upper face sunglasses & dark coverage detection
         sunglasses_prob = self._detect_sunglasses(face_crop)
 
         # Determine occlusion
@@ -52,7 +52,7 @@ class FaceAttributeEngine:
 
         if mask_prob >= self.mask_threshold:
             is_occluded = True
-            reasons.append("Face covered by mask")
+            reasons.append("Face covered by mask, scarf, or cloth")
 
         if sunglasses_prob >= self.sunglasses_threshold:
             is_occluded = True
@@ -69,13 +69,13 @@ class FaceAttributeEngine:
             reason=reason_str
         )
 
-    def _detect_mask(self, face_crop: np.ndarray) -> float:
+    def _detect_mask_or_cloth(self, face_crop: np.ndarray) -> float:
         """
-        Heuristic lower-face mask analysis:
-        Checks lower 50% of the face for skin pixel ratio and high edge texture (fabric patterns).
+        Lower & mid face occlusion analysis (mask, scarf, cloth, bandana, hand cover):
+        Checks lower 55% of the face for skin pixel ratio, fabric texture edges, and color consistency.
         """
         fh, fw, _ = face_crop.shape
-        lower_face = face_crop[int(fh * 0.5):fh, :]
+        lower_face = face_crop[int(fh * 0.45):fh, :]
 
         if lower_face.size == 0:
             return 0.0
@@ -83,25 +83,29 @@ class FaceAttributeEngine:
         # Convert to HSV for skin color detection
         hsv = cv2.cvtColor(lower_face, cv2.COLOR_BGR2HSV)
         
-        # Define skin tone range in HSV
-        lower_skin = np.array([0, 20, 70], dtype=np.uint8)
-        upper_skin = np.array([20, 255, 255], dtype=np.uint8)
+        # Define HSV skin tone range
+        lower_skin = np.array([0, 15, 60], dtype=np.uint8)
+        upper_skin = np.array([25, 255, 255], dtype=np.uint8)
         
         skin_mask = cv2.inRange(hsv, lower_skin, upper_skin)
-        skin_ratio = np.sum(skin_mask > 0) / (lower_face.shape[0] * lower_face.shape[1])
+        skin_ratio = np.sum(skin_mask > 0) / float(lower_face.shape[0] * lower_face.shape[1])
 
-        # Edge analysis for fabric texture
+        # Edge analysis for fabric/cloth texture
         gray_lower = cv2.cvtColor(lower_face, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray_lower, 50, 150)
-        edge_ratio = np.sum(edges > 0) / (lower_face.shape[0] * lower_face.shape[1])
+        edge_ratio = np.sum(edges > 0) / float(lower_face.shape[0] * lower_face.shape[1])
 
-        # High edges + low skin ratio indicates mask presence
-        if skin_ratio < 0.15 and edge_ratio > 0.10:
-            return min(0.95, 0.6 + edge_ratio)
+        # Fabric/cloth: low skin ratio (< 0.20) or high texture edge ratio (> 0.12)
+        if skin_ratio < 0.15 and edge_ratio > 0.08:
+            return min(0.98, 0.65 + edge_ratio)
         elif skin_ratio < 0.08:
-            return 0.85
-        
-        return float(max(0.0, 1.0 - (skin_ratio * 1.5)))
+            return 0.90
+        elif skin_ratio < 0.25 and edge_ratio > 0.12:
+            return 0.80
+
+        # Calculate skin deficit
+        prob = max(0.0, 1.0 - (skin_ratio * 1.6))
+        return float(min(1.0, prob))
 
     def _detect_sunglasses(self, face_crop: np.ndarray) -> float:
         """
@@ -116,7 +120,7 @@ class FaceAttributeEngine:
 
         gray_eyes = cv2.cvtColor(eye_region, cv2.COLOR_BGR2GRAY)
         avg_brightness = np.mean(gray_eyes)
-        dark_ratio = np.sum(gray_eyes < 40) / gray_eyes.size
+        dark_ratio = np.sum(gray_eyes < 40) / float(gray_eyes.size)
 
         if dark_ratio > 0.40 and avg_brightness < 60:
             return min(0.98, 0.5 + dark_ratio)

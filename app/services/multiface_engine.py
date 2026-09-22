@@ -20,22 +20,23 @@ EMBEDDINGS_PATH = ROOT / "face_data" / "embeddings.json"
 class MultiFaceEngine:
 
     def __init__(self):
-        logger.info("Loading MultiFace InsightFace engine with addons=['liveness']...")
+        det_size = liveness_config.DETECTOR_SIZE
+        logger.info("Loading MultiFace InsightFace engine with det_size=%s...", det_size)
 
         try:
             self.app = FaceAnalysis(
                 name="buffalo_l",
                 providers=["CPUExecutionProvider"],
-                addons=["liveness"],
+                allowed_modules=["detection", "recognition"],
             )
-            self.app.prepare(ctx_id=-1, det_size=(640, 640))
+            self.app.prepare(ctx_id=-1, det_size=det_size)
         except Exception as e:
-            logger.warning("Could not initialize with addons=['liveness']: %s. Falling back to base model.", e)
+            logger.warning("Could not initialize with allowed_modules: %s. Falling back to default loader.", e)
             self.app = FaceAnalysis(
                 name="buffalo_l",
                 providers=["CPUExecutionProvider"],
             )
-            self.app.prepare(ctx_id=-1, det_size=(640, 640))
+            self.app.prepare(ctx_id=-1, det_size=det_size)
 
         # Auxiliary phase 4.5 engines
         self.attribute_engine = FaceAttributeEngine()
@@ -100,6 +101,44 @@ class MultiFaceEngine:
 
         return best_employee, best_score
 
+    @staticmethod
+    def estimate_head_pose(face) -> tuple[float, float, float]:
+        """
+        Estimate (yaw, pitch, roll) angles in degrees from facial landmarks (kps).
+        kps: 0=left eye, 1=right eye, 2=nose, 3=left mouth, 4=right mouth.
+        """
+        kps = getattr(face, "kps", None)
+        pose = getattr(face, "pose", None)
+
+        if pose is not None and len(pose) >= 3:
+            return float(pose[0]), float(pose[1]), float(pose[2])
+
+        if kps is None or len(kps) < 5:
+            return 0.0, 0.0, 0.0
+
+        left_eye, right_eye, nose = kps[0], kps[1], kps[2]
+        left_mouth, right_mouth = kps[3], kps[4]
+
+        eye_dx = right_eye[0] - left_eye[0]
+        eye_dy = right_eye[1] - left_eye[1]
+        inter_ocular = max(1.0, float(np.linalg.norm([eye_dx, eye_dy])))
+
+        # Roll: eye tilt
+        roll = float(np.degrees(np.arctan2(eye_dy, eye_dx)))
+
+        # Yaw: nose horizontal displacement from eye midpoint
+        eye_mid_x = (left_eye[0] + right_eye[0]) / 2.0
+        yaw = float(((nose[0] - eye_mid_x) / inter_ocular) * 90.0)
+
+        # Pitch: nose vertical displacement from eye-mouth midpoint
+        eye_mid_y = (left_eye[1] + right_eye[1]) / 2.0
+        mouth_mid_y = (left_mouth[1] + right_mouth[1]) / 2.0
+        face_height = max(1.0, mouth_mid_y - eye_mid_y)
+        expected_nose_y = eye_mid_y + (face_height * 0.45)
+        pitch = float(((nose[1] - expected_nose_y) / face_height) * 90.0)
+
+        return yaw, pitch, roll
+
     def analyze(self, image_bytes: bytes):
         self.reload_embeddings()
 
@@ -130,6 +169,8 @@ class MultiFaceEngine:
         logger.info("Detected %d face(s)", len(faces))
         results = []
 
+        h, w, _ = image.shape
+
         for index, face in enumerate(faces):
             face_result = {
                 "face_index": index,
@@ -142,6 +183,10 @@ class MultiFaceEngine:
                 "employee_id": None,
                 "confidence": 0.0,
                 "bbox": None,
+                "yaw": 0.0,
+                "pitch": 0.0,
+                "roll": 0.0,
+                "quality_score": 0.0,
                 "_embedding": None,
             }
 
@@ -157,19 +202,71 @@ class MultiFaceEngine:
             except Exception:
                 logger.exception("Unable to read face bounding box")
 
-            # Embedding (extracted before liveness for tracking)
+            bbox_list = face_result["bbox"] or [0, 0, 0, 0]
+            box_w = max(1.0, bbox_list[2] - bbox_list[0])
+            box_h = max(1.0, bbox_list[3] - bbox_list[1])
+
+            # Embedding (extracted for recognition & tracking)
             try:
-                embedding = face.embedding
+                embedding = getattr(face, "embedding", None)
+                if embedding is None and hasattr(self.app, "models") and "recognition" in self.app.models:
+                    try:
+                        self.app.models["recognition"].get(image, face)
+                        embedding = getattr(face, "embedding", None)
+                    except Exception:
+                        pass
+
                 if embedding is not None:
                     embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
                     face_result["_embedding"] = embedding
             except Exception:
                 logger.exception("Embedding extraction failed for face %d", index)
 
-            bbox_list = face_result["bbox"] or [0, 0, 0, 0]
+            # Distance check: handle small faces
+            if box_w < liveness_config.MIN_FACE_SIZE or box_h < liveness_config.MIN_FACE_SIZE:
+                face_result["is_occluded"] = True
+                face_result["occlusion_reason"] = f"Face too small ({int(box_w)}x{int(box_h)}px)"
+                results.append(face_result)
+                continue
 
-            # 1. Attribute Check (Mask/Sunglasses)
-            attr_res = self.attribute_engine.analyze_face(image, bbox_list)
+            # Pose angle estimation
+            yaw, pitch, roll = self.estimate_head_pose(face)
+            face_result["yaw"] = round(yaw, 2)
+            face_result["pitch"] = round(pitch, 2)
+            face_result["roll"] = round(roll, 2)
+
+            # Angle gate check: allow 3/4 & moderate profile up to MAX_YAW (60 degrees)
+            if (abs(yaw) > liveness_config.MAX_YAW or
+                abs(pitch) > liveness_config.MAX_PITCH or
+                abs(roll) > liveness_config.MAX_ROLL):
+                face_result["is_occluded"] = True
+                face_result["occlusion_reason"] = (
+                    f"Head angle too extreme (yaw={yaw:.1f}°, pitch={pitch:.1f}°). "
+                    "Please turn slightly towards camera."
+                )
+                results.append(face_result)
+                continue
+
+            # Quality scoring: size + pose symmetry + sharpness
+            size_score = min(1.0, (box_w * box_h) / (120.0 * 120.0))
+            pose_score = max(0.0, 1.0 - (abs(yaw) / 90.0))
+            face_result["quality_score"] = round(0.5 * size_score + 0.5 * pose_score, 4)
+
+            # Distance crop-and-upscale for feature optimization if face is small (< 80px)
+            proc_image = image
+            proc_bbox = bbox_list
+            if box_w < 80 or box_h < 80:
+                pad_x = int(box_w * 0.2)
+                pad_y = int(box_h * 0.2)
+                cx1, cy1 = max(0, int(bbox_list[0]) - pad_x), max(0, int(bbox_list[1]) - pad_y)
+                cx2, cy2 = min(w, int(bbox_list[2]) + pad_x), min(h, int(bbox_list[3]) + pad_y)
+                crop = image[cy1:cy2, cx1:cx2]
+                if crop.size > 0:
+                    proc_image = cv2.resize(crop, (160, 160), interpolation=cv2.INTER_CUBIC)
+                    proc_bbox = [0, 0, 160, 160]
+
+            # 1. Attribute Check (Mask/Scarf/Cloth/Sunglasses)
+            attr_res = self.attribute_engine.analyze_face(proc_image, proc_bbox)
             if attr_res.is_occluded:
                 face_result["is_occluded"] = True
                 face_result["occlusion_reason"] = attr_res.reason
@@ -179,7 +276,7 @@ class MultiFaceEngine:
                 continue
 
             # 2. Hand Check
-            hand_res = self.hand_engine.check_hand_face_overlap(image, bbox_list)
+            hand_res = self.hand_engine.check_hand_face_overlap(proc_image, proc_bbox)
             if hand_res.has_hand_overlap:
                 face_result["is_occluded"] = True
                 face_result["occlusion_reason"] = f"Hand covering face (ratio {hand_res.overlap_ratio:.2f})"
@@ -203,7 +300,7 @@ class MultiFaceEngine:
             face_result["live_score"] = round(insight_score, 4)
 
             # 4. Anti-Spoofing (MiniFASNet)
-            pad_res = self.anti_spoof_engine.analyze_spoof(image, bbox_list)
+            pad_res = self.anti_spoof_engine.analyze_spoof(proc_image, proc_bbox)
             anti_spoof_score = pad_res["score"]
             face_result["anti_spoof_score"] = round(anti_spoof_score, 4)
 

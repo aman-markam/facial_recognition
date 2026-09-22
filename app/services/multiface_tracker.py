@@ -1014,14 +1014,10 @@ class MultiFaceTracker:
                 )
 
                 if embedding is None:
-
-                    logger.warning(
-                        "Face %s has no embedding",
-                        face.get(
-                            "face_index"
-                        )
+                    logger.debug(
+                        "Face %s skipped (no embedding or occluded)",
+                        face.get("face_index")
                     )
-
                     continue
 
                 # -------------------------------------------------
@@ -1102,6 +1098,45 @@ class MultiFaceTracker:
                             "confidence",
                             0.0
                         )
+                    ),
+
+                    "quality_score": float(
+                        face.get(
+                            "quality_score",
+                            0.0
+                        )
+                    ),
+
+                    "yaw": float(
+                        face.get(
+                            "yaw",
+                            0.0
+                        )
+                    ),
+
+                    "pitch": float(
+                        face.get(
+                            "pitch",
+                            0.0
+                        )
+                    ),
+
+                    "roll": float(
+                        face.get(
+                            "roll",
+                            0.0
+                        )
+                    ),
+
+                    "is_occluded": bool(
+                        face.get(
+                            "is_occluded",
+                            False
+                        )
+                    ),
+
+                    "occlusion_reason": face.get(
+                        "occlusion_reason"
                     ),
 
                     "bbox": face.get(

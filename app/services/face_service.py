@@ -64,7 +64,7 @@ class FaceService:
 
         self.app.prepare(
             ctx_id=-1,
-            det_size=(640, 640)
+            det_size=(960, 960)
         )
 
         logger.info(
@@ -114,9 +114,9 @@ class FaceService:
 
         if getattr(face, "kps", None) is not None and len(face.kps) >= 2:
             iod = float(np.linalg.norm(face.kps[0] - face.kps[1]))
-            if iod < 35:
+            if iod < 20:
                 raise ValueError(
-                    f"Insufficient resolution: Inter-ocular distance ({int(iod)}px) falls below 35px."
+                    f"Insufficient resolution: Inter-ocular distance ({int(iod)}px) falls below 20px."
                 )
 
         embedding = face.embedding

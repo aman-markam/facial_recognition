@@ -13,10 +13,14 @@ logger = logging.getLogger(__name__)
 
 try:
     import mediapipe as mp
-    MEDIAPIPE_AVAILABLE = True
-except ImportError:
+    try:
+        import mediapipe.python.solutions.hands as mp_hands_solution
+    except (ImportError, AttributeError):
+        mp_hands_solution = getattr(getattr(mp, "solutions", None), "hands", None)
+    MEDIAPIPE_AVAILABLE = mp_hands_solution is not None
+except Exception:
+    mp_hands_solution = None
     MEDIAPIPE_AVAILABLE = False
-    logger.warning("MediaPipe package not installed. Hand detection falling back to skin contour analysis.")
 
 
 class HandDetectionEngine:
@@ -25,16 +29,18 @@ class HandDetectionEngine:
         self.overlap_threshold = liveness_config.HAND_FACE_OVERLAP_THRESHOLD
         self.mp_hands = None
         
-        if MEDIAPIPE_AVAILABLE:
+        if MEDIAPIPE_AVAILABLE and mp_hands_solution is not None:
             try:
-                self.mp_hands = mp.solutions.hands.Hands(
+                self.mp_hands = mp_hands_solution.Hands(
                     static_image_mode=True,
                     max_num_hands=4,
                     min_detection_confidence=0.5
                 )
                 logger.info("MediaPipe Hands initialized for hand-face occlusion check.")
             except Exception as e:
-                logger.warning("Could not initialize MediaPipe Hands: %s", e)
+                logger.info("MediaPipe Hands unavailable (%s). Falling back to skin contour analysis.", e)
+        else:
+            logger.info("MediaPipe Solutions not available on current environment. Hand detection using skin contour analysis.")
 
     def check_hand_face_overlap(self, image: np.ndarray, face_bbox: list) -> HandOverlapResult:
         """

@@ -17,15 +17,24 @@ class LivenessConfig(BaseSettings):
     TOTAL_FRAMES: int = 5
 
     # Occlusion thresholds
-    MASK_THRESHOLD: float = 0.80
-    SUNGLASSES_THRESHOLD: float = 0.80
-    HAND_FACE_OVERLAP_THRESHOLD: float = 0.20
+    MASK_THRESHOLD: float = 0.70
+    SUNGLASSES_THRESHOLD: float = 0.75
+    HAND_FACE_OVERLAP_THRESHOLD: float = 0.15
 
     # Face recognition matching threshold
     FACE_RECOGNITION_THRESHOLD: float = 0.55
 
     # Maximum allowed faces in a frame
-    MAX_FACES: int = 5
+    MAX_FACES: int = 10
+
+    # Detection & Distance settings
+    DETECTOR_SIZE: tuple[int, int] = (960, 960)
+    MIN_FACE_SIZE: int = 40
+
+    # Pose angle thresholds (degrees)
+    MAX_YAW: float = 60.0    # 3/4 & moderate profile supported
+    MAX_PITCH: float = 45.0
+    MAX_ROLL: float = 45.0
 
     model_config = SettingsConfigDict(
         env_file=".env",
