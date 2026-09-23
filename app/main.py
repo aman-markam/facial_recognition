@@ -14,6 +14,8 @@ from app.core.error_handlers import (
     general_exception_handler,
 )
 from app.routes.appside.attendance import router as attendance_router
+from app.routes.appside.face import router as appside_face_router
+from app.routes.location import router as location_router
 from app.routes.dashboard.auth import router as dashboard_auth_router
 
 from app.routes.dashboard.employees import (
@@ -34,6 +36,8 @@ app = FastAPI(
     title="Face Attendance API",
     version="1.0.0"
 )
+
+# app = FastAPI(redirect_slashes=False)
 setup_logging()
 app.add_exception_handler(
     HTTPException,
@@ -79,6 +83,10 @@ app.include_router(
 )
 
 app.include_router(
+    appside_face_router,
+)
+
+app.include_router(
     dashboard_employee_router,
     prefix="/api/v1/dashboard"
 )
@@ -97,6 +105,9 @@ app.include_router(
 app.include_router(
     face_direct_router,
     prefix="/api/v1/dashboard"
+)
+app.include_router(
+    location_router
 )
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"

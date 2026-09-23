@@ -3,6 +3,7 @@ from datetime import date, datetime, time
 from sqlalchemy import (
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Numeric,
@@ -87,6 +88,21 @@ class Attendance(Base):
 
     confidence: Mapped[float | None] = mapped_column(
         Numeric(5, 4),
+        nullable=True,
+    )
+
+    latitude: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    longitude: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    location_name: Mapped[str | None] = mapped_column(
+        String(255),
         nullable=True,
     )
 

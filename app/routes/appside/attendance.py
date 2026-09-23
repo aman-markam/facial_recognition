@@ -36,6 +36,9 @@ async def mark_attendance(
     employee_code: str | None = Form(default=None),
     mode: str | None = Form(default=None),
     action: str | None = Form(default=None),
+    latitude: float | None = Form(default=None),
+    longitude: float | None = Form(default=None),
+    location_name: str | None = Form(default=None),
     db: Session = Depends(get_db)
 ):
 
@@ -217,6 +220,12 @@ async def mark_attendance(
     if open_attendance:
 
         open_attendance.check_out = current_time
+        if latitude is not None:
+            open_attendance.latitude = latitude
+        if longitude is not None:
+            open_attendance.longitude = longitude
+        if location_name is not None:
+            open_attendance.location_name = location_name
 
         check_in_datetime = datetime.combine(
             open_attendance.attendance_date,
@@ -273,7 +282,10 @@ async def mark_attendance(
                     open_attendance.confidence
                 )
                 if open_attendance.confidence
-                else confidence
+                else confidence,
+            "latitude": open_attendance.latitude,
+            "longitude": open_attendance.longitude,
+            "location_name": open_attendance.location_name
         }
 
 
@@ -343,7 +355,10 @@ async def mark_attendance(
         check_out=None,
         working_minutes=None,
         status=status,
-        confidence=confidence
+        confidence=confidence,
+        latitude=latitude,
+        longitude=longitude,
+        location_name=location_name
     )
 
     db.add(attendance)
@@ -404,7 +419,10 @@ async def mark_attendance(
                 attendance.confidence
             )
             if attendance.confidence
-            else confidence
+            else confidence,
+        "latitude": attendance.latitude,
+        "longitude": attendance.longitude,
+        "location_name": attendance.location_name
     }
 # ============================================================
 # MULTI-FACE ATTENDANCE
@@ -415,6 +433,9 @@ async def mark_multiple_attendance(
     images: list[UploadFile] = File(...),
     mode: str | None = Form(default=None),
     action: str | None = Form(default=None),
+    latitude: float | None = Form(default=None),
+    longitude: float | None = Form(default=None),
+    location_name: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     """
@@ -1027,6 +1048,9 @@ async def mark_multiple_attendance(
             working_minutes=None,
             status=status,
             confidence=confidence,
+            latitude=latitude,
+            longitude=longitude,
+            location_name=location_name,
         )
 
         db.add(attendance)

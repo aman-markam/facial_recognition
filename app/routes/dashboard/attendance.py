@@ -51,6 +51,9 @@ def get_today_attendance(
             Attendance.working_minutes,
             Attendance.status,
             Attendance.confidence,
+            Attendance.latitude,
+            Attendance.longitude,
+            Attendance.location_name,
         )
         .join(
             Employee,
@@ -98,6 +101,9 @@ def get_attendance(
             Attendance.working_minutes,
             Attendance.status,
             Attendance.confidence,
+            Attendance.latitude,
+            Attendance.longitude,
+            Attendance.location_name,
         )
         .join(
             Employee,
@@ -226,6 +232,9 @@ def get_attendance_report(
             Attendance.working_minutes,
             Attendance.status,
             Attendance.confidence,
+            Attendance.latitude,
+            Attendance.longitude,
+            Attendance.location_name,
         )
         .join(
             Employee,

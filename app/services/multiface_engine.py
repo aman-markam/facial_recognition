@@ -107,56 +107,6 @@ class MultiFaceEngine:
             return emp_ids[best_idx], best_score
         return None, best_score
 
-
-def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 0.50, app=None):
-    """
-    Detect and recognize all faces in a frame at once using fast vectorized dot product matching.
-    """
-    if app is None:
-        from insightface.app import FaceAnalysis
-        app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-        app.prepare(ctx_id=-1, det_size=(960, 960))
-
-    faces = app.get(frame)
-    results = []
-
-    emp_ids = list(loaded_embeddings.keys())
-    if not emp_ids:
-        for face in faces:
-            results.append({
-                "bbox": face.bbox.astype(int).tolist(),
-                "employee_id": "Unknown",
-                "confidence": 0.0
-            })
-        return results
-
-    matrix_embeddings = np.array([loaded_embeddings[emp_id] for emp_id in emp_ids], dtype=np.float32)
-
-    for face in faces:
-        emb = getattr(face, "embedding", None)
-        if emb is None:
-            continue
-
-        norm = np.linalg.norm(emb)
-        norm_emb = emb / norm if norm > 0 else emb
-
-        scores = np.dot(matrix_embeddings, norm_emb)
-        best_idx = int(np.argmax(scores))
-        best_score = float(scores[best_idx])
-
-        if best_score >= threshold:
-            matched_emp = emp_ids[best_idx]
-        else:
-            matched_emp = "Unknown"
-
-        results.append({
-            "bbox": face.bbox.astype(int).tolist(),
-            "employee_id": matched_emp,
-            "confidence": round(best_score, 4)
-        })
-
-    return results
-
     @staticmethod
     def estimate_head_pose(face) -> tuple[float, float, float]:
         """
@@ -395,3 +345,98 @@ def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 
             "recognized_faces": recognized_faces,
             "faces": results,
         }
+
+
+# =========================================================
+# STANDALONE HELPER FUNCTIONS FOR VISUAL OVERLAY & RECOGNITION
+# =========================================================
+
+def detect_and_recognize_faces(frame, face_app, loaded_embeddings: dict, threshold: float = 0.50):
+    """
+    Detect all faces in frame and return bounding box array and identified employee_code with confidence score.
+    """
+    faces = face_app.get(frame)
+    results = []
+
+    if not faces or not loaded_embeddings:
+        return results
+
+    emp_ids = list(loaded_embeddings.keys())
+    embedding_matrix = np.array([loaded_embeddings[emp_id] for emp_id in emp_ids], dtype=np.float32)
+
+    for face in faces:
+        bbox = face.bbox.astype(int).tolist()
+        emb = getattr(face, "embedding", None)
+        if emb is None:
+            continue
+
+        norm = np.linalg.norm(emb)
+        norm_emb = emb / norm if norm > 0 else emb
+
+        scores = np.dot(embedding_matrix, norm_emb)
+        best_idx = int(np.argmax(scores))
+        best_score = float(scores[best_idx])
+
+        label = emp_ids[best_idx] if best_score >= threshold else "Unknown"
+
+        results.append({
+            "bbox": bbox,
+            "employee_code": label,
+            "employee_id": label,
+            "score": round(best_score, 4),
+            "confidence": round(best_score, 4)
+        })
+
+    return results
+
+
+def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 0.50, app=None):
+    """
+    Alias wrapper for detect_and_recognize_faces.
+    """
+    if app is None:
+        from insightface.app import FaceAnalysis
+        app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        app.prepare(ctx_id=-1, det_size=(960, 960))
+    return detect_and_recognize_faces(frame, app, loaded_embeddings, threshold=threshold)
+
+
+def draw_face_annotations(frame, recognition_results: list[dict]):
+    """
+    Draw visual HUD bounding rectangles and identity labels on image frame.
+    Green rectangle for recognized employees, red rectangle for unknown faces.
+    """
+    annotated = frame.copy()
+    for res in recognition_results:
+        bbox = res.get("bbox")
+        if bbox is None or len(bbox) != 4:
+            continue
+
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        label = str(res.get("employee_code") or res.get("employee_id") or "Unknown")
+        score = float(res.get("score") if res.get("score") is not None else res.get("confidence", 0.0))
+
+        # Color green for recognized employee, red for unknown
+        color = (0, 255, 0) if label != "Unknown" else (0, 0, 255)
+
+        # 1. Draw rectangle around face
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+
+        # 2. Draw label background box
+        text = f"{label} ({score:.2f})"
+        (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        bg_y1 = max(0, y1 - text_h - 10)
+        cv2.rectangle(annotated, (x1, bg_y1), (x1 + text_w, y1), color, -1)
+
+        # 3. Draw employee code text above rectangle
+        cv2.putText(
+            annotated,
+            text,
+            (x1, max(15, y1 - 5)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            2
+        )
+
+    return annotated
