@@ -59,4 +59,11 @@ class Employee(Base):
         "Attendance",
         back_populates="employee",
         cascade="all, delete-orphan",
-    )
+    )
+
+    face_embedding = relationship(
+        "FaceEmbedding",
+        back_populates="employee",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )

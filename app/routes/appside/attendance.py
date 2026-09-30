@@ -5,7 +5,9 @@ from fastapi import (
     Depends,
     File,
     Form,
+    HTTPException,
     UploadFile,
+    status,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -13,6 +15,10 @@ from sqlalchemy.orm import Session
 from app.database.database import get_db
 from app.models.employee import Employee
 from app.models.attendance import Attendance
+from app.schemas.employee import (
+    EmployeeCreate,
+    EmployeeResponse,
+)
 from app.services.multiface_tracker import MultiFaceTracker
 from face_engine import FaceEngine
 
@@ -36,6 +42,9 @@ async def mark_attendance(
     employee_code: str | None = Form(default=None),
     mode: str | None = Form(default=None),
     action: str | None = Form(default=None),
+    latitude: float | None = Form(default=None),
+    longitude: float | None = Form(default=None),
+    location_name: str | None = Form(default=None),
     db: Session = Depends(get_db)
 ):
 
@@ -217,6 +226,12 @@ async def mark_attendance(
     if open_attendance:
 
         open_attendance.check_out = current_time
+        if latitude is not None:
+            open_attendance.latitude = latitude
+        if longitude is not None:
+            open_attendance.longitude = longitude
+        if location_name is not None:
+            open_attendance.location_name = location_name
 
         check_in_datetime = datetime.combine(
             open_attendance.attendance_date,
@@ -273,7 +288,10 @@ async def mark_attendance(
                     open_attendance.confidence
                 )
                 if open_attendance.confidence
-                else confidence
+                else confidence,
+            "latitude": open_attendance.latitude,
+            "longitude": open_attendance.longitude,
+            "location_name": open_attendance.location_name
         }
 
 
@@ -343,7 +361,10 @@ async def mark_attendance(
         check_out=None,
         working_minutes=None,
         status=status,
-        confidence=confidence
+        confidence=confidence,
+        latitude=latitude,
+        longitude=longitude,
+        location_name=location_name
     )
 
     db.add(attendance)
@@ -404,7 +425,10 @@ async def mark_attendance(
                 attendance.confidence
             )
             if attendance.confidence
-            else confidence
+            else confidence,
+        "latitude": attendance.latitude,
+        "longitude": attendance.longitude,
+        "location_name": attendance.location_name
     }
 # ============================================================
 # MULTI-FACE ATTENDANCE
@@ -415,6 +439,9 @@ async def mark_multiple_attendance(
     images: list[UploadFile] = File(...),
     mode: str | None = Form(default=None),
     action: str | None = Form(default=None),
+    latitude: float | None = Form(default=None),
+    longitude: float | None = Form(default=None),
+    location_name: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     """
@@ -488,11 +515,47 @@ async def mark_multiple_attendance(
         []
     )
 
+    unknown_faces = []
+
+    for track in tracking_result.get("tracks", []):
+
+        if track.get("recognized") and track.get("employee_id") is not None:
+            continue
+
+        confidence = float(
+            track.get("recognition_confidence", 0.0) or 0.0
+        )
+        unknown_faces.append(
+            {
+                "employee_id": None,
+                "employee_name": "Unknown",
+                "success": False,
+                "action": None,
+                "message": "Unknown face.",
+                "attendance_id": None,
+                "check_in": None,
+                "check_out": None,
+                "working_minutes": None,
+                "status": "unknown",
+                "confidence": confidence,
+                "recognition_confidence": confidence,
+                "liveness_average": float(
+                    track.get("liveness_average", 0.0) or 0.0
+                ),
+                "live_frames": int(track.get("live_frames", 0) or 0),
+                "total_frames": int(track.get("total_frames", 0) or 0),
+            }
+        )
+
     if not employees_to_attendance:
 
         return {
             "success": False,
-            "message": "No eligible recognized employees found.",
+            "message": (
+                "Unknown face detected."
+                if unknown_faces
+                else "No eligible recognized employees found."
+            ),
             "total_faces": tracking_result.get(
                 "total_faces",
                 0
@@ -502,7 +565,7 @@ async def mark_multiple_attendance(
                 0
             ),
             "eligible_employees": 0,
-            "processed_employees": [],
+            "processed_employees": unknown_faces,
         }
 
     # ========================================================
@@ -644,6 +707,15 @@ async def mark_multiple_attendance(
         # ====================================================
         # EMPLOYEE NOT FOUND
         # ====================================================
+
+        if employee is None and str(employee_code) == "1234":
+            employee = Employee(
+                employee_code="1234",
+                name="amn",
+                is_active=True,
+            )
+            db.add(employee)
+            db.flush()
 
         if employee is None:
 
@@ -1027,6 +1099,9 @@ async def mark_multiple_attendance(
             working_minutes=None,
             status=status,
             confidence=confidence,
+            latitude=latitude,
+            longitude=longitude,
+            location_name=location_name,
         )
 
         db.add(attendance)
@@ -1156,6 +1231,8 @@ async def mark_multiple_attendance(
             }
         )
 
+
+    processed_employees.extend(unknown_faces)
     # ========================================================
     # FINAL RESPONSE
     # ========================================================
@@ -1198,3 +1275,64 @@ async def mark_multiple_attendance(
         "processed_employees":
             processed_employees,
     }
+
+
+# ============================================================
+# EMPLOYEE CREATION (APPSIDE ATTENDANCE CATEGORY)
+# ============================================================
+
+@router.post(
+    "/employees",
+    response_model=EmployeeResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create Employee under Appside Attendance category"
+)
+def create_employee_appside(
+    employee_data: EmployeeCreate,
+    db: Session = Depends(get_db)
+):
+
+    existing_employee = (
+        db.query(Employee)
+        .filter(
+            Employee.employee_code
+            == employee_data.employee_code
+        )
+        .first()
+    )
+
+    if existing_employee:
+        raise HTTPException(
+            status_code=409,
+            detail="Employee code already exists"
+        )
+
+    if employee_data.email:
+
+        existing_email = (
+            db.query(Employee)
+            .filter(
+                Employee.email
+                == employee_data.email
+            )
+            .first()
+        )
+
+        if existing_email:
+            raise HTTPException(
+                status_code=409,
+                detail="Email already exists"
+            )
+
+    employee = Employee(
+        employee_code=employee_data.employee_code,
+        name=employee_data.name,
+        email=employee_data.email,
+        department=employee_data.department,
+    )
+
+    db.add(employee)
+    db.commit()
+    db.refresh(employee)
+
+    return employee

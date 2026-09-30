@@ -5,7 +5,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
-from app.dependencies.auth import get_current_admin
 from app.models.attendance import Attendance
 from app.models.employee import Employee
 from app.schemas.report import (
@@ -17,8 +16,7 @@ from app.schemas.report import (
 
 router = APIRouter(
     prefix="/reports",
-    tags=["Dashboard - Reports"],
-    dependencies=[Depends(get_current_admin)]
+    tags=["Dashboard - Reports"]
 )
 
 

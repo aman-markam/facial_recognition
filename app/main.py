@@ -14,6 +14,9 @@ from app.core.error_handlers import (
     general_exception_handler,
 )
 from app.routes.appside.attendance import router as attendance_router
+from app.routes.appside.face import router as appside_face_router
+from app.routes.appside.till_yolo import router as till_yolo_router
+from app.routes.location import router as location_router
 from app.routes.dashboard.auth import router as dashboard_auth_router
 
 from app.routes.dashboard.employees import (
@@ -34,6 +37,8 @@ app = FastAPI(
     title="Face Attendance API",
     version="1.0.0"
 )
+
+# app = FastAPI(redirect_slashes=False)
 setup_logging()
 app.add_exception_handler(
     HTTPException,
@@ -58,7 +63,7 @@ app.add_exception_handler(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000"
+        "*"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -76,6 +81,14 @@ app.include_router(
 
 app.include_router(
     liveness_router,
+)
+
+app.include_router(
+    appside_face_router,
+)
+
+app.include_router(
+    till_yolo_router,
 )
 
 app.include_router(
@@ -98,10 +111,27 @@ app.include_router(
     face_direct_router,
     prefix="/api/v1/dashboard"
 )
+app.include_router(
+    location_router
+)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.on_event("startup")
+def import_face_embeddings_on_startup():
+    from app.services.embedding_store import import_json_embeddings_if_needed
+
+    imported = import_json_embeddings_if_needed()
+    if imported:
+        from app.routes.dashboard.face import _reload_recognition_caches
+
+        try:
+            _reload_recognition_caches()
+        except Exception:
+            pass
 
 
 @app.get("/demo", response_class=HTMLResponse)

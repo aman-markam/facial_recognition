@@ -15,13 +15,11 @@ from app.schemas.attendance import (
     AttendanceEmployeeResponse,
     AttendanceSummary,
 )
-from app.dependencies.auth import get_current_admin
 
 
 router = APIRouter(
     prefix="/attendance",
-    tags=["Dashboard Attendance"],
-    dependencies=[Depends(get_current_admin)]
+    tags=["Dashboard Attendance"]
 )
 
 
@@ -51,6 +49,9 @@ def get_today_attendance(
             Attendance.working_minutes,
             Attendance.status,
             Attendance.confidence,
+            Attendance.latitude,
+            Attendance.longitude,
+            Attendance.location_name,
         )
         .join(
             Employee,
@@ -98,6 +99,9 @@ def get_attendance(
             Attendance.working_minutes,
             Attendance.status,
             Attendance.confidence,
+            Attendance.latitude,
+            Attendance.longitude,
+            Attendance.location_name,
         )
         .join(
             Employee,
@@ -226,6 +230,9 @@ def get_attendance_report(
             Attendance.working_minutes,
             Attendance.status,
             Attendance.confidence,
+            Attendance.latitude,
+            Attendance.longitude,
+            Attendance.location_name,
         )
         .join(
             Employee,

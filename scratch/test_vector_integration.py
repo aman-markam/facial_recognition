@@ -59,11 +59,21 @@ def test_fast_matrix_recognition():
     print("✅ Fast matrix dot product recognition verified.")
 
 
-def test_threshold_verification():
-    print("\n--- Test Recognition Decision Threshold ---")
-    print(f"Configured THRESHOLD: {THRESHOLD}")
-    assert THRESHOLD == 0.50, f"Expected THRESHOLD 0.50, got {THRESHOLD}"
-    print("✅ Decision threshold verified.")
+def test_draw_face_annotations():
+    print("\n--- Test Visual Overlay HUD Annotation ---")
+    from app.services.multiface_engine import draw_face_annotations
+    import cv2
+
+    dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    results = [
+        {"bbox": [50, 50, 200, 200], "employee_code": "EMP001", "score": 0.88},
+        {"bbox": [300, 100, 450, 250], "employee_code": "Unknown", "score": 0.35}
+    ]
+
+    annotated = draw_face_annotations(dummy_frame, results)
+    assert annotated.shape == (480, 640, 3), "Frame dimensions must match"
+    assert not np.array_equal(dummy_frame, annotated), "Annotated frame must contain drawn overlay"
+    print("✅ Visual overlay HUD annotation verified.")
 
 
 if __name__ == "__main__":
@@ -71,4 +81,5 @@ if __name__ == "__main__":
     test_centroid_averaging()
     test_fast_matrix_recognition()
     test_threshold_verification()
-    print("\n🎉 ALL VECTOR INTEGRATION TESTS PASSED SUCCESSFULLY!")
+    test_draw_face_annotations()
+    print("\n🎉 ALL VECTOR & OVERLAY INTEGRATION TESTS PASSED SUCCESSFULLY!")

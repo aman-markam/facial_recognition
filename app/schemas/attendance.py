@@ -17,6 +17,9 @@ class AttendanceResponse(BaseModel):
     working_minutes: int | None
     status: str
     confidence: Decimal | None
+    latitude: float | None = None
+    longitude: float | None = None
+    location_name: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -37,6 +40,9 @@ class AttendanceEmployeeResponse(BaseModel):
     working_minutes: int | None
     status: str
     confidence: Decimal | None
+    latitude: float | None = None
+    longitude: float | None = None
+    location_name: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,6 +72,9 @@ class AttendanceResultItem(BaseModel):
     spoof_score: float = 0.0
     attendance_action: str = "REJECTED"  # CHECK_IN, CHECK_OUT, ALREADY_RECORDED, REJECTED
     message: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    location_name: Optional[str] = None
 
 
 class MultiPersonAttendanceResponse(BaseModel):

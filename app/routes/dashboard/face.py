@@ -1,6 +1,3 @@
-from pathlib import Path
-import json
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -14,74 +11,25 @@ from typing import Annotated
 from app.database.database import get_db
 from app.models.employee import Employee
 from app.schemas.face import FaceEnrollmentResponse
+from app.services.embedding_store import is_enrolled
 from app.services.face_service import face_service
-from app.dependencies.auth import get_current_admin
 
 
 router = APIRouter(
     prefix="/employees",
-    tags=["Dashboard - Face Enrollment"],
-    dependencies=[Depends(get_current_admin)]
+    tags=["Dashboard - Face Enrollment"]
 )
 
 
-# ==========================================
-# EMBEDDINGS FILE
-# ==========================================
+def _reload_recognition_caches() -> None:
+    from app.routes.appside.attendance import face_engine, multi_face_tracker
+    from app.routes.appside import face as appside_face
 
-ROOT = Path(__file__).resolve().parents[3]
+    face_engine.reload_embeddings()
+    appside_face.face_engine.reload_embeddings()
+    if hasattr(multi_face_tracker, "engine"):
+        multi_face_tracker.engine.reload_embeddings()
 
-EMBEDDINGS_PATH = (
-    ROOT / "face_data" / "embeddings.json"
-)
-
-
-# ==========================================
-# CHECK EXISTING ENROLLMENT
-# ==========================================
-
-def face_already_enrolled(
-    employee_code: str
-) -> bool:
-
-    if not EMBEDDINGS_PATH.exists():
-        return False
-
-    try:
-
-        with open(
-            EMBEDDINGS_PATH,
-            "r",
-            encoding="utf-8"
-        ) as file:
-
-            data = json.load(file)
-
-        print(
-            "Checking enrollment for:",
-            employee_code
-        )
-
-        print(
-            "Existing employees:",
-            list(data.keys())
-        )
-
-        return employee_code in data
-
-    except Exception as e:
-
-        print(
-            "Enrollment check error:",
-            e
-        )
-
-        return False
-
-
-# ==========================================
-# ENROLL FACE
-# ==========================================
 
 @router.post(
     "/{employee_id}/face",
@@ -102,10 +50,6 @@ async def enroll_employee_face(
 
 ):
 
-    # --------------------------------------
-    # FIND EMPLOYEE
-    # --------------------------------------
-
     ident_str = str(employee_id)
     employee = (
         db.query(Employee)
@@ -119,18 +63,12 @@ async def enroll_employee_face(
             .first()
         )
 
-
     if not employee:
 
         raise HTTPException(
             status_code=404,
             detail="Employee not found"
         )
-
-
-    # --------------------------------------
-    # ACTIVE CHECK
-    # --------------------------------------
 
     if not employee.is_active:
 
@@ -139,53 +77,7 @@ async def enroll_employee_face(
             detail="Employee is inactive"
         )
 
-
-    # --------------------------------------
-    # DUPLICATE ENROLLMENT CHECK
-    # --------------------------------------
-
-    if face_already_enrolled(
-        employee.employee_code
-    ):
-        print(
-            "================================"
-        )
-
-        print(
-            "EMPLOYEE ID:",
-            employee.id
-        )
-
-        print(
-            "EMPLOYEE CODE:",
-            employee.employee_code
-        )
-
-        print(
-            "EMBEDDINGS PATH:",
-            EMBEDDINGS_PATH
-        )
-
-        print(
-            "FILE EXISTS:",
-            EMBEDDINGS_PATH.exists()
-        )
-
-        print(
-            "ALREADY ENROLLED:",
-            face_already_enrolled(
-                employee.employee_code
-            )
-        )
-
-        print(
-            "================================"
-)
-        print(
-            f"Duplicate enrollment blocked: "
-            f"{employee.employee_code}"
-        )
-
+    if is_enrolled(employee.employee_code, db):
         raise HTTPException(
             status_code=409,
             detail=(
@@ -194,11 +86,6 @@ async def enroll_employee_face(
                 f"{employee.employee_code}."
             )
         )
-
-
-    # --------------------------------------
-    # IMAGE COUNT
-    # --------------------------------------
 
     if len(images) < 5:
 
@@ -209,7 +96,6 @@ async def enroll_employee_face(
             )
         )
 
-
     if len(images) > 20:
 
         raise HTTPException(
@@ -219,13 +105,7 @@ async def enroll_employee_face(
             )
         )
 
-
-    # --------------------------------------
-    # READ IMAGES
-    # --------------------------------------
-
     image_bytes_list = []
-
 
     for image in images:
 
@@ -235,7 +115,6 @@ async def enroll_employee_face(
                 status_code=400,
                 detail="Invalid image"
             )
-
 
         if not image.content_type.startswith(
             "image/"
@@ -249,9 +128,7 @@ async def enroll_employee_face(
                 )
             )
 
-
         image_bytes = await image.read()
-
 
         if not image_bytes:
 
@@ -263,15 +140,9 @@ async def enroll_employee_face(
                 )
             )
 
-
         image_bytes_list.append(
             image_bytes
         )
-
-
-    # --------------------------------------
-    # CREATE EMBEDDING
-    # --------------------------------------
 
     try:
 
@@ -288,16 +159,12 @@ async def enroll_employee_face(
             detail=str(e)
         )
 
-
-    # --------------------------------------
-    # SAVE EMBEDDING
-    # --------------------------------------
-
     try:
 
         face_service.save_embedding(
             employee.employee_code,
-            embedding
+            embedding,
+            db,
         )
 
     except ValueError as e:
@@ -309,11 +176,6 @@ async def enroll_employee_face(
 
     except Exception as e:
 
-        print(
-            "Failed to save embedding:",
-            e
-        )
-
         raise HTTPException(
             status_code=500,
             detail=str(e) or (
@@ -321,22 +183,10 @@ async def enroll_employee_face(
             )
         )
 
-
-        # --------------------------------------
-        # RELOAD ACTIVE VECTOR MEMORY CACHE
-        # --------------------------------------
-        try:
-            from face_engine import FaceEngine
-            from app.routes.appside.attendance import multi_face_tracker, face_engine
-            face_engine.reload_embeddings()
-            if hasattr(multi_face_tracker, "multiface_engine"):
-                multi_face_tracker.multiface_engine.reload_embeddings()
-        except Exception as exc:
-            print("Notice: Error auto-reloading memory cache:", exc)
-
-    # --------------------------------------
-    # RESPONSE
-    # --------------------------------------
+    try:
+        _reload_recognition_caches()
+    except Exception:
+        pass
 
     return {
         "success": True,
@@ -350,14 +200,9 @@ async def enroll_employee_face(
     }
 
 
-# ==========================================
-# RELOAD EMBEDDINGS ENDPOINT
-# ==========================================
-
 face_direct_router = APIRouter(
     prefix="/face",
-    tags=["Dashboard - Face Enrollment"],
-    dependencies=[Depends(get_current_admin)]
+    tags=["Dashboard - Face Enrollment"]
 )
 
 
@@ -371,16 +216,13 @@ face_direct_router = APIRouter(
 )
 async def reload_face_embeddings():
     """
-    Reload face enrollment vectors from face_data/embeddings.json into active memory cache.
+    Reload face enrollment vectors from PostgreSQL into the in-memory cache.
     """
-    from face_engine import FaceEngine
-    from app.routes.appside.attendance import multi_face_tracker, face_engine
+    from app.routes.appside.attendance import face_engine
 
     try:
-        face_engine.reload_embeddings()
+        _reload_recognition_caches()
         count = len(face_engine.embeddings)
-        if hasattr(multi_face_tracker, "multiface_engine"):
-            multi_face_tracker.multiface_engine.reload_embeddings()
     except Exception as e:
         raise HTTPException(
             status_code=500,

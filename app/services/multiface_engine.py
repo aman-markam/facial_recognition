@@ -1,20 +1,16 @@
-import json
 import logging
-from pathlib import Path
 
 import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
 
 from app.core.liveness_config import liveness_config
+from app.services.anti_spoof_engine import AntiSpoofEngine
+from app.services.embedding_store import load_all_embeddings
 from app.services.face_attribute_engine import FaceAttributeEngine
 from app.services.hand_detection_engine import HandDetectionEngine
-from app.services.anti_spoof_engine import AntiSpoofEngine
 
 logger = logging.getLogger(__name__)
-
-ROOT = Path(__file__).resolve().parents[2]
-EMBEDDINGS_PATH = ROOT / "face_data" / "embeddings.json"
 
 
 class MultiFaceEngine:
@@ -27,16 +23,13 @@ class MultiFaceEngine:
             self.app = FaceAnalysis(
                 name="buffalo_l",
                 providers=["CPUExecutionProvider"],
-                allowed_modules=["detection", "recognition"],
+                addons=["liveness"],
             )
             self.app.prepare(ctx_id=-1, det_size=det_size)
         except Exception as e:
-            logger.warning("Could not initialize with allowed_modules: %s. Falling back to default loader.", e)
-            self.app = FaceAnalysis(
-                name="buffalo_l",
-                providers=["CPUExecutionProvider"],
-            )
-            self.app.prepare(ctx_id=-1, det_size=det_size)
+            raise RuntimeError(
+                "Unable to initialize InsightFace with the liveness addon"
+            ) from e
 
         # Auxiliary phase 4.5 engines
         self.attribute_engine = FaceAttributeEngine()
@@ -55,29 +48,7 @@ class MultiFaceEngine:
     # =========================================================
 
     def _load_embeddings(self):
-        if not EMBEDDINGS_PATH.exists():
-            logger.warning("Embeddings file not found: %s", EMBEDDINGS_PATH)
-            return {}
-
-        try:
-            with open(EMBEDDINGS_PATH, "r", encoding="utf-8") as file:
-                data = json.load(file)
-
-            embeddings = {
-                employee_id: np.array(embedding, dtype=np.float32)
-                for employee_id, embedding in data.items()
-            }
-            logger.info("Loaded %d employee embeddings", len(embeddings))
-            return embeddings
-        except json.JSONDecodeError:
-            logger.exception("Invalid embeddings JSON")
-            return {}
-        except OSError:
-            logger.exception("Unable to read embeddings file")
-            return {}
-        except Exception:
-            logger.exception("Unexpected error loading embeddings")
-            return {}
+        return load_all_embeddings()
 
     def reload_embeddings(self):
         self.embeddings = self._load_embeddings()
@@ -89,7 +60,7 @@ class MultiFaceEngine:
         b = b / (np.linalg.norm(b) + 1e-10)
         return float(np.dot(a, b))
 
-    def find_best_match(self, embedding, threshold: float = 0.50):
+    def find_best_match(self, embedding, threshold: float = 0.70):
         if not self.embeddings or embedding is None:
             return None, 0.0
 
@@ -106,56 +77,6 @@ class MultiFaceEngine:
         if best_score >= threshold:
             return emp_ids[best_idx], best_score
         return None, best_score
-
-
-def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 0.50, app=None):
-    """
-    Detect and recognize all faces in a frame at once using fast vectorized dot product matching.
-    """
-    if app is None:
-        from insightface.app import FaceAnalysis
-        app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-        app.prepare(ctx_id=-1, det_size=(960, 960))
-
-    faces = app.get(frame)
-    results = []
-
-    emp_ids = list(loaded_embeddings.keys())
-    if not emp_ids:
-        for face in faces:
-            results.append({
-                "bbox": face.bbox.astype(int).tolist(),
-                "employee_id": "Unknown",
-                "confidence": 0.0
-            })
-        return results
-
-    matrix_embeddings = np.array([loaded_embeddings[emp_id] for emp_id in emp_ids], dtype=np.float32)
-
-    for face in faces:
-        emb = getattr(face, "embedding", None)
-        if emb is None:
-            continue
-
-        norm = np.linalg.norm(emb)
-        norm_emb = emb / norm if norm > 0 else emb
-
-        scores = np.dot(matrix_embeddings, norm_emb)
-        best_idx = int(np.argmax(scores))
-        best_score = float(scores[best_idx])
-
-        if best_score >= threshold:
-            matched_emp = emp_ids[best_idx]
-        else:
-            matched_emp = "Unknown"
-
-        results.append({
-            "bbox": face.bbox.astype(int).tolist(),
-            "employee_id": matched_emp,
-            "confidence": round(best_score, 4)
-        })
-
-    return results
 
     @staticmethod
     def estimate_head_pose(face) -> tuple[float, float, float]:
@@ -196,8 +117,6 @@ def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 
         return yaw, pitch, roll
 
     def analyze(self, image_bytes: bytes):
-        self.reload_embeddings()
-
         image_array = np.frombuffer(image_bytes, dtype=np.uint8)
         image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
@@ -326,20 +245,14 @@ def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 
             if attr_res.is_occluded:
                 face_result["is_occluded"] = True
                 face_result["occlusion_reason"] = attr_res.reason
-                face_result["is_live"] = False
-                logger.info("Face %d rejected due to attributes: %s", index, attr_res.reason)
-                results.append(face_result)
-                continue
+                logger.info("Face %d has possible occlusion: %s", index, attr_res.reason)
 
             # 2. Hand Check
             hand_res = self.hand_engine.check_hand_face_overlap(proc_image, proc_bbox)
             if hand_res.has_hand_overlap:
                 face_result["is_occluded"] = True
                 face_result["occlusion_reason"] = f"Hand covering face (ratio {hand_res.overlap_ratio:.2f})"
-                face_result["is_live"] = False
-                logger.info("Face %d rejected due to hand overlap", index)
-                results.append(face_result)
-                continue
+                logger.info("Face %d has possible hand overlap", index)
 
             # 3. InsightFace Liveness
             insight_score = 0.0
@@ -367,12 +280,14 @@ def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 
             )
             face_result["is_live"] = is_live
 
-            if not is_live:
-                face_result["occlusion_reason"] = pad_res.get("reason", "Liveness / Anti-spoof check failed")
-                results.append(face_result)
-                continue
+            if not is_live and not face_result["is_occluded"]:
+                face_result["occlusion_reason"] = pad_res.get(
+                    "reason",
+                    "Liveness check failed",
+                )
 
-            # 5. Recognition
+            # 5. Recognition: compare every detected face even when a
+            # liveness or heuristic occlusion check produces a warning.
             if face_result["_embedding"] is not None:
                 employee_id, score = self.find_best_match(face_result["_embedding"])
                 score = float(score)
@@ -395,3 +310,98 @@ def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 
             "recognized_faces": recognized_faces,
             "faces": results,
         }
+
+
+# =========================================================
+# STANDALONE HELPER FUNCTIONS FOR VISUAL OVERLAY & RECOGNITION
+# =========================================================
+
+def detect_and_recognize_faces(frame, face_app, loaded_embeddings: dict, threshold: float = 0.50):
+    """
+    Detect all faces in frame and return bounding box array and identified employee_code with confidence score.
+    """
+    faces = face_app.get(frame)
+    results = []
+
+    if not faces or not loaded_embeddings:
+        return results
+
+    emp_ids = list(loaded_embeddings.keys())
+    embedding_matrix = np.array([loaded_embeddings[emp_id] for emp_id in emp_ids], dtype=np.float32)
+
+    for face in faces:
+        bbox = face.bbox.astype(int).tolist()
+        emb = getattr(face, "embedding", None)
+        if emb is None:
+            continue
+
+        norm = np.linalg.norm(emb)
+        norm_emb = emb / norm if norm > 0 else emb
+
+        scores = np.dot(embedding_matrix, norm_emb)
+        best_idx = int(np.argmax(scores))
+        best_score = float(scores[best_idx])
+
+        label = emp_ids[best_idx] if best_score >= threshold else "Unknown"
+
+        results.append({
+            "bbox": bbox,
+            "employee_code": label,
+            "employee_id": label,
+            "score": round(best_score, 4),
+            "confidence": round(best_score, 4)
+        })
+
+    return results
+
+
+def recognize_faces_in_frame(frame, loaded_embeddings: dict, threshold: float = 0.50, app=None):
+    """
+    Alias wrapper for detect_and_recognize_faces.
+    """
+    if app is None:
+        from insightface.app import FaceAnalysis
+        app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        app.prepare(ctx_id=-1, det_size=(960, 960))
+    return detect_and_recognize_faces(frame, app, loaded_embeddings, threshold=threshold)
+
+
+def draw_face_annotations(frame, recognition_results: list[dict]):
+    """
+    Draw visual HUD bounding rectangles and identity labels on image frame.
+    Green rectangle for recognized employees, red rectangle for unknown faces.
+    """
+    annotated = frame.copy()
+    for res in recognition_results:
+        bbox = res.get("bbox")
+        if bbox is None or len(bbox) != 4:
+            continue
+
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        label = str(res.get("employee_code") or res.get("employee_id") or "Unknown")
+        score = float(res.get("score") if res.get("score") is not None else res.get("confidence", 0.0))
+
+        # Color green for recognized employee, red for unknown
+        color = (0, 255, 0) if label != "Unknown" else (0, 0, 255)
+
+        # 1. Draw rectangle around face
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+
+        # 2. Draw label background box
+        text = f"{label} ({score:.2f})"
+        (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        bg_y1 = max(0, y1 - text_h - 10)
+        cv2.rectangle(annotated, (x1, bg_y1), (x1 + text_w, y1), color, -1)
+
+        # 3. Draw employee code text above rectangle
+        cv2.putText(
+            annotated,
+            text,
+            (x1, max(15, y1 - 5)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            2
+        )
+
+    return annotated

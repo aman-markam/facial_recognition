@@ -1,22 +1,21 @@
 import cv2
 import numpy as np
-
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.services.face_service import face_service
-
+from face_engine import FaceEngine
 
 router = APIRouter(
     prefix="/api/v1/appside/face",
-    tags=["Appside - Face"]
+    tags=["Appside - Face Recognition"]
 )
+
+face_engine = FaceEngine()
 
 
 @router.post("/recognize")
 async def recognize_face(
     image: UploadFile = File(...)
 ):
-
     contents = await image.read()
 
     if not contents:
@@ -25,22 +24,13 @@ async def recognize_face(
             detail="Empty image"
         )
 
-    image_array = np.frombuffer(
-        contents,
-        dtype=np.uint8
-    )
+    result = face_engine.recognize(contents)
 
-    frame = cv2.imdecode(
-        image_array,
-        cv2.IMREAD_COLOR
-    )
-
-    if frame is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid image"
-        )
-
-    result = face_service.recognize(frame)
+    if not result.get("success", False):
+        return {
+            "success": False,
+            "message": result.get("message", "Recognition failed"),
+            "confidence": result.get("confidence", 0.0)
+        }
 
     return result
