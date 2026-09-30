@@ -1228,9 +1228,15 @@ class MultiFaceTracker:
             # Recognition confidence
             # -------------------------------------------------
 
+            confidence_source = (
+                recognized_observations
+                if recognized_observations
+                else observations
+            )
+
             confidence_values = [
                 obs["confidence"]
-                for obs in recognized_observations
+                for obs in confidence_source
                 if obs["confidence"] > 0
             ]
 
@@ -1273,8 +1279,7 @@ class MultiFaceTracker:
             )
 
             eligible_for_attendance = (
-                passed_liveness
-                and recognized
+                recognized
             )
 
             final_tracks.append(

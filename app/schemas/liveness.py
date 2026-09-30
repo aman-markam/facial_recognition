@@ -41,6 +41,7 @@ class MultiFaceLivenessResponse(BaseModel):
     live_faces: int = 0
     spoof_faces: int = 0
     faces: List[FaceLivenessResult] = Field(default_factory=list)
+    yolo_till_info: Optional[Dict[str, Any]] = None
     message: str = "Processed faces successfully"
 
 

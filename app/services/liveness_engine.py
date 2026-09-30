@@ -17,6 +17,7 @@ from app.core.liveness_config import liveness_config
 from app.services.face_attribute_engine import FaceAttributeEngine
 from app.services.hand_detection_engine import HandDetectionEngine
 from app.services.anti_spoof_engine import AntiSpoofEngine
+from app.services.yolo_detector import yolo_till_detector
 from app.schemas.liveness import (
     FaceLivenessResult,
     MultiFaceLivenessResponse
@@ -51,6 +52,7 @@ class LivenessEngine:
         self.attribute_engine = FaceAttributeEngine()
         self.hand_engine = HandDetectionEngine()
         self.anti_spoof_engine = AntiSpoofEngine()
+        self.yolo_detector = yolo_till_detector
 
     def analyze_image(self, image: np.ndarray) -> MultiFaceLivenessResponse:
         """
@@ -66,6 +68,12 @@ class LivenessEngine:
         # 1. Multi-Face Detection
         faces = self.app.get(image)
 
+        # Extract all face bounding boxes for YOLO proximity analysis
+        face_bboxes = [face.bbox.tolist() for face in faces] if faces else []
+        
+        # Run YOLO Till & Anti-Spoofing Detector
+        yolo_till_info = self.yolo_detector.analyze_till_frame(image, face_bboxes)
+
         if not faces:
             return MultiFaceLivenessResponse(
                 success=True,
@@ -73,6 +81,7 @@ class LivenessEngine:
                 live_faces=0,
                 spoof_faces=0,
                 faces=[],
+                yolo_till_info=yolo_till_info,
                 message="No face detected"
             )
 
@@ -124,7 +133,24 @@ class LivenessEngine:
                 )
                 continue
 
-            # Step C: InsightFace Official Liveness Addon Score
+            # Step C: YOLO Electronic Device / Screen Anti-Spoof Check
+            if yolo_till_info.get("device_near_face"):
+                spoof_count += 1
+                face_results.append(
+                    FaceLivenessResult(
+                        face_index=idx,
+                        bbox=bbox,
+                        is_live=False,
+                        live_score=0.0,
+                        anti_spoof_score=0.0,
+                        is_occluded=True,
+                        occlusion_reason="YOLO Anti-Spoofing: Electronic screen/device detected near face",
+                        status="yolo_spoof_device_rejected"
+                    )
+                )
+                continue
+
+            # Step D: InsightFace Official Liveness Addon Score
             insight_live = False
             insight_score = 0.0
             insight_status = "ok"
@@ -140,7 +166,7 @@ class LivenessEngine:
                     insight_live = bool(getattr(liveness_data, "is_live", False))
                     insight_status = str(getattr(liveness_data, "status", "ok"))
 
-            # Step D: MiniFASNet Anti-Spoofing Score
+            # Step E: MiniFASNet Anti-Spoofing Score
             pad_res = self.anti_spoof_engine.analyze_spoof(image, bbox)
             anti_spoof_score = pad_res["score"]
 
@@ -181,5 +207,6 @@ class LivenessEngine:
             live_faces=live_count,
             spoof_faces=spoof_count,
             faces=face_results,
+            yolo_till_info=yolo_till_info,
             message=f"Processed {len(faces)} face(s): {live_count} live, {spoof_count} spoof/rejected"
         )

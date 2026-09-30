@@ -10,14 +10,9 @@ from app.schemas.employee import (
     EmployeeUpdate,
 )
 
-from app.dependencies.auth import get_current_admin
-from app.models.admin import Admin
-from app.services.face_service import face_service
-
 router = APIRouter(
     prefix="/employees",
     tags=["Dashboard - Employees"],
-    dependencies=[Depends(get_current_admin)]
 )
 
 
@@ -82,10 +77,7 @@ def create_employee(
     response_model=list[EmployeeResponse]
 )
 def get_employees(
-    db: Session = Depends(get_db),
-    current_admin: Admin = Depends(
-        get_current_admin
-    )
+    db: Session = Depends(get_db)
 ):
 
     employees = (
@@ -194,8 +186,6 @@ def delete_employee(
             detail="Employee not found"
         )
 
-    employee_code = employee.employee_code
-
     db.query(Attendance).filter(
         Attendance.employee_id == employee.id
     ).delete(synchronize_session=False)
@@ -203,12 +193,7 @@ def delete_employee(
     db.delete(employee)
     db.commit()
 
-    try:
-        face_service.delete_embedding(employee_code)
-    except Exception:
-        pass
-
     return {
         "success": True,
         "message": "Employee deleted successfully"
-    }
+    }

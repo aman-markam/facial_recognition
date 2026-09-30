@@ -1,22 +1,16 @@
-import json
 import logging
-from pathlib import Path
 from typing import Tuple
 
 import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
 
+from app.services.embedding_store import load_all_embeddings
+
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
-
-ROOT = Path(__file__).resolve().parent
-
-EMBEDDINGS_PATH = (
-    ROOT / "face_data" / "embeddings.json"
-)
 
 # Face recognition threshold
 THRESHOLD = 0.50
@@ -104,65 +98,12 @@ class FaceEngine:
     # ========================================================
 
     def _load_embeddings(self):
-
-        if not EMBEDDINGS_PATH.exists():
-
-            logger.warning(
-                "Embeddings file not found: %s",
-                EMBEDDINGS_PATH
-            )
-
-            return {}
-
-        try:
-
-            with open(
-                EMBEDDINGS_PATH,
-                "r",
-                encoding="utf-8"
-            ) as file:
-
-                data = json.load(file)
-
-            embeddings = {
-                employee_id: np.array(
-                    embedding,
-                    dtype=np.float32
-                )
-                for employee_id, embedding
-                in data.items()
-            }
-
-            logger.info(
-                "Embeddings loaded successfully: %d employee(s)",
-                len(embeddings)
-            )
-
-            return embeddings
-
-        except json.JSONDecodeError:
-
-            logger.exception(
-                "Invalid JSON in embeddings file"
-            )
-
-            return {}
-
-        except OSError:
-
-            logger.exception(
-                "Unable to read embeddings file"
-            )
-
-            return {}
-
-        except Exception:
-
-            logger.exception(
-                "Unexpected error while loading embeddings"
-            )
-
-            return {}
+        embeddings = load_all_embeddings()
+        logger.info(
+            "Embeddings loaded successfully: %d employee(s)",
+            len(embeddings)
+        )
+        return embeddings
 
     # ========================================================
     # RELOAD EMBEDDINGS

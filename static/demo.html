@@ -449,6 +449,31 @@ header p {
     </div>
   </div>
 
+  <!-- YOLO Till & Anti-Spoofing Panel -->
+  <div class="card" id="yoloTillCard">
+    <div class="section-title">
+      🎯 YOLO Till & Device Anti-Spoofing Monitor
+      <span class="badge" id="yoloStatusBadge" style="background:#dcfce7;color:#16a34a;">YOLO Active</span>
+    </div>
+    <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));gap:16px;margin-bottom:16px;">
+      <div style="background:var(--neutral-50);padding:14px;border-radius:8px;border:1px solid var(--neutral-200);">
+        <div style="font-size:12px;color:var(--neutral-500);font-weight:600;">TILL PERSON COUNT</div>
+        <div id="yoloPersonCount" style="font-size:28px;font-weight:700;color:var(--neutral-900);">0</div>
+      </div>
+      <div style="background:var(--neutral-50);padding:14px;border-radius:8px;border:1px solid var(--neutral-200);">
+        <div style="font-size:12px;color:var(--neutral-500);font-weight:600;">DETECTED DEVICES / SCREENS</div>
+        <div id="yoloDevicesText" style="font-size:16px;font-weight:600;color:var(--neutral-800);margin-top:4px;">None</div>
+      </div>
+      <div style="background:var(--neutral-50);padding:14px;border-radius:8px;border:1px solid var(--neutral-200);">
+        <div style="font-size:12px;color:var(--neutral-500);font-weight:600;">SPOOF RISK LEVEL</div>
+        <div id="yoloRiskBadge" style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:700;background:#dcfce7;color:#16a34a;margin-top:4px;">LOW</div>
+      </div>
+    </div>
+    <div id="yoloAlertBanner" style="display:none;padding:12px 16px;border-radius:8px;background:var(--error-light);color:var(--error);font-size:14px;font-weight:600;">
+      ⚠️ SUSPICIOUS DEVICE NEAR FACE: Screen replay / mobile phone detected at till!
+    </div>
+  </div>
+
   <!-- Results -->
   <div class="card" id="resultsCard" style="display:none;">
     <div class="section-title">Attendance Results</div>
@@ -476,6 +501,7 @@ const apiUrlInput = document.getElementById('apiUrl');
 
 let stream = null;
 let isCapturing = false;
+let yoloTimer = null;
 
 function setStatus(message, type) {
   statusText.textContent = message;
@@ -487,6 +513,79 @@ function setStatus(message, type) {
 
 function getApiUrl() {
   return apiUrlInput.value.replace(/\/+$/, '');
+}
+
+async function runYoloTillPoll() {
+  if (!stream || isCapturing) return;
+  try {
+    const blob = await captureFrame();
+    const formData = new FormData();
+    formData.append('image', blob, 'till.jpg');
+
+    const baseUrl = getApiUrl();
+    const res = await fetch(baseUrl + '/api/v1/appside/till/analyze-frame', {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data && data.till_analysis) {
+      updateYoloUI(data.till_analysis);
+    }
+  } catch (err) {
+    console.warn('YOLO poll error:', err);
+  }
+}
+
+function updateYoloUI(info) {
+  const yoloStatusBadge = document.getElementById('yoloStatusBadge');
+  const yoloPersonCount = document.getElementById('yoloPersonCount');
+  const yoloDevicesText = document.getElementById('yoloDevicesText');
+  const yoloRiskBadge = document.getElementById('yoloRiskBadge');
+  const yoloAlertBanner = document.getElementById('yoloAlertBanner');
+
+  if (!info.yolo_active) {
+    yoloStatusBadge.textContent = 'Fallback Mode';
+    yoloStatusBadge.style.background = '#fef3c7';
+    yoloStatusBadge.style.color = '#f59e0b';
+  } else {
+    yoloStatusBadge.textContent = 'YOLO Active';
+    yoloStatusBadge.style.background = '#dcfce7';
+    yoloStatusBadge.style.color = '#16a34a';
+  }
+
+  yoloPersonCount.textContent = info.till_person_count || 0;
+
+  const devices = info.detected_devices || [];
+  if (devices.length > 0) {
+    const labels = devices.map(d => d.label + (d.near_face ? ' (NEAR FACE)' : '')).join(', ');
+    yoloDevicesText.textContent = labels;
+    yoloDevicesText.style.color = info.device_near_face ? 'var(--error)' : 'var(--neutral-800)';
+  } else {
+    yoloDevicesText.textContent = 'None';
+    yoloDevicesText.style.color = 'var(--neutral-800)';
+  }
+
+  const risk = info.spoof_risk_level || 'LOW';
+  yoloRiskBadge.textContent = risk;
+  if (risk === 'HIGH') {
+    yoloRiskBadge.style.background = 'var(--error-light)';
+    yoloRiskBadge.style.color = 'var(--error)';
+  } else if (risk === 'MEDIUM') {
+    yoloRiskBadge.style.background = 'var(--warning-light)';
+    yoloRiskBadge.style.color = 'var(--warning)';
+  } else {
+    yoloRiskBadge.style.background = 'var(--success-light)';
+    yoloRiskBadge.style.color = 'var(--success)';
+  }
+
+  if (info.device_near_face || risk === 'HIGH') {
+    yoloAlertBanner.style.display = 'block';
+    yoloAlertBanner.textContent = info.warning_message || '⚠️ SUSPICIOUS DEVICE NEAR FACE: Mobile phone or screen detected near face at till!';
+  } else {
+    yoloAlertBanner.style.display = 'none';
+  }
 }
 
 async function startCamera() {
@@ -506,12 +605,21 @@ async function startCamera() {
     overlayText.textContent = 'Live preview';
     setStatus('Camera is ready. Position one or more people in frame, then click "Capture & Mark Attendance".', 'info');
     statusBar.innerHTML = '<span>' + statusText.textContent + '</span>';
+
+    // Start live YOLO till polling
+    if (yoloTimer) clearInterval(yoloTimer);
+    yoloTimer = setInterval(runYoloTillPoll, 1500);
+    runYoloTillPoll();
   } catch (err) {
     setStatus('Could not access camera: ' + err.message, 'error');
   }
 }
 
 function stopCamera() {
+  if (yoloTimer) {
+    clearInterval(yoloTimer);
+    yoloTimer = null;
+  }
   if (stream) {
     stream.getTracks().forEach(t => t.stop());
     stream = null;

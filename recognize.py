@@ -31,10 +31,20 @@ def recognize_multiple_webcam(action: str = "check_in", camera_index: int = 0) -
     try:
         database.initialize()
     except Exception as e:
-        print(f"Note: Local database initialize skipped or failed: {e}")
+        print(f"❌ Database unavailable: {e}")
+        print(
+            "Set the PostgreSQL password in this PowerShell session and "
+            "run the command again:"
+        )
+        print('$env:FACE_DB_PASSWORD = "<your-postgres-password>"')
+        return []
 
     tracker = MultiFaceTracker()
-    employees_map = database.get_employees()
+    try:
+        employees_map = database.get_employees()
+    except Exception as e:
+        print(f"❌ Unable to load employees from the database: {e}")
+        return []
 
     # Open webcam with native high resolution
     cap = cv2.VideoCapture(camera_index)
@@ -144,33 +154,58 @@ def recognize_multiple_webcam(action: str = "check_in", camera_index: int = 0) -
                 is_live = track.get("passed_liveness", False)
                 recognized = track.get("recognized", False)
                 emp_id = track.get("employee_id")
+                confidence = float(track.get("recognition_confidence", 0.0) or 0.0)
                 is_occluded = latest_obs.get("is_occluded", False)
                 occlusion_reason = latest_obs.get("occlusion_reason")
 
-                # Color coding: Green = Recognized Live, Yellow = Occluded, Red = Rejected
-                if is_live and recognized and emp_id:
-                    emp_name = employees_map.get(str(emp_id), f"Employee {emp_id}")
+                # Color coding: Green = Live, Yellow = Occluded, Red = Rejected
+                if recognized and emp_id and confidence >= 0.60:
                     box_color = (0, 220, 0)
-                    label = f"✓ {emp_name} ({emp_id})"
+                    label = f"Employee: {emp_id}"
+                elif confidence >= 0.60 and emp_id:
+                    box_color = (0, 220, 0)
+                    label = f"Employee: {emp_id}"
                 elif is_occluded:
                     box_color = (0, 165, 255)
-                    label = f"⚠ Covered: {occlusion_reason or 'Cloth/Hand'}"
+                    label = f"⚠ Check: {occlusion_reason or 'Face quality'}"
                 else:
                     box_color = (0, 0, 230)
-                    label = "✕ Unrecognized / Spoof"
+                    label = "Unknown"
 
                 # Draw bounding box and label
                 cv2.rectangle(display_frame, (x1, y1), (x2, y2), box_color, 2)
-                cv2.rectangle(display_frame, (x1, max(0, y1 - 25)), (x2, y1), box_color, -1)
+                label_top = max(0, y1 - 30)
+                cv2.rectangle(display_frame, (x1, label_top), (x2, y1), box_color, -1)
                 cv2.putText(
                     display_frame,
                     label,
-                    (x1 + 5, max(15, y1 - 7)),
+                    (x1 + 5, max(15, y1 - 10)),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.55,
                     (255, 255, 255),
                     2
                 )
+
+                if confidence > 0:
+                    score_label = f"Score: {confidence:.3f}"
+                    score_top = min(fh - 25, y2)
+                    score_bottom = min(fh, score_top + 28)
+                    cv2.rectangle(
+                        display_frame,
+                        (x1, score_top),
+                        (x2, score_bottom),
+                        box_color,
+                        -1,
+                    )
+                    cv2.putText(
+                        display_frame,
+                        score_label,
+                        (x1 + 5, min(fh - 7, score_top + 20)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        (255, 255, 255),
+                        2,
+                    )
 
             cv2.imshow("Multi-Person Facial Attendance System", display_frame)
 

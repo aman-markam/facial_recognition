@@ -1,20 +1,16 @@
-import json
 import logging
-from pathlib import Path
 
 import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
 
 from app.core.liveness_config import liveness_config
+from app.services.anti_spoof_engine import AntiSpoofEngine
+from app.services.embedding_store import load_all_embeddings
 from app.services.face_attribute_engine import FaceAttributeEngine
 from app.services.hand_detection_engine import HandDetectionEngine
-from app.services.anti_spoof_engine import AntiSpoofEngine
 
 logger = logging.getLogger(__name__)
-
-ROOT = Path(__file__).resolve().parents[2]
-EMBEDDINGS_PATH = ROOT / "face_data" / "embeddings.json"
 
 
 class MultiFaceEngine:
@@ -27,16 +23,13 @@ class MultiFaceEngine:
             self.app = FaceAnalysis(
                 name="buffalo_l",
                 providers=["CPUExecutionProvider"],
-                allowed_modules=["detection", "recognition"],
+                addons=["liveness"],
             )
             self.app.prepare(ctx_id=-1, det_size=det_size)
         except Exception as e:
-            logger.warning("Could not initialize with allowed_modules: %s. Falling back to default loader.", e)
-            self.app = FaceAnalysis(
-                name="buffalo_l",
-                providers=["CPUExecutionProvider"],
-            )
-            self.app.prepare(ctx_id=-1, det_size=det_size)
+            raise RuntimeError(
+                "Unable to initialize InsightFace with the liveness addon"
+            ) from e
 
         # Auxiliary phase 4.5 engines
         self.attribute_engine = FaceAttributeEngine()
@@ -55,29 +48,7 @@ class MultiFaceEngine:
     # =========================================================
 
     def _load_embeddings(self):
-        if not EMBEDDINGS_PATH.exists():
-            logger.warning("Embeddings file not found: %s", EMBEDDINGS_PATH)
-            return {}
-
-        try:
-            with open(EMBEDDINGS_PATH, "r", encoding="utf-8") as file:
-                data = json.load(file)
-
-            embeddings = {
-                employee_id: np.array(embedding, dtype=np.float32)
-                for employee_id, embedding in data.items()
-            }
-            logger.info("Loaded %d employee embeddings", len(embeddings))
-            return embeddings
-        except json.JSONDecodeError:
-            logger.exception("Invalid embeddings JSON")
-            return {}
-        except OSError:
-            logger.exception("Unable to read embeddings file")
-            return {}
-        except Exception:
-            logger.exception("Unexpected error loading embeddings")
-            return {}
+        return load_all_embeddings()
 
     def reload_embeddings(self):
         self.embeddings = self._load_embeddings()
@@ -89,7 +60,7 @@ class MultiFaceEngine:
         b = b / (np.linalg.norm(b) + 1e-10)
         return float(np.dot(a, b))
 
-    def find_best_match(self, embedding, threshold: float = 0.50):
+    def find_best_match(self, embedding, threshold: float = 0.70):
         if not self.embeddings or embedding is None:
             return None, 0.0
 
@@ -146,8 +117,6 @@ class MultiFaceEngine:
         return yaw, pitch, roll
 
     def analyze(self, image_bytes: bytes):
-        self.reload_embeddings()
-
         image_array = np.frombuffer(image_bytes, dtype=np.uint8)
         image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
@@ -276,20 +245,14 @@ class MultiFaceEngine:
             if attr_res.is_occluded:
                 face_result["is_occluded"] = True
                 face_result["occlusion_reason"] = attr_res.reason
-                face_result["is_live"] = False
-                logger.info("Face %d rejected due to attributes: %s", index, attr_res.reason)
-                results.append(face_result)
-                continue
+                logger.info("Face %d has possible occlusion: %s", index, attr_res.reason)
 
             # 2. Hand Check
             hand_res = self.hand_engine.check_hand_face_overlap(proc_image, proc_bbox)
             if hand_res.has_hand_overlap:
                 face_result["is_occluded"] = True
                 face_result["occlusion_reason"] = f"Hand covering face (ratio {hand_res.overlap_ratio:.2f})"
-                face_result["is_live"] = False
-                logger.info("Face %d rejected due to hand overlap", index)
-                results.append(face_result)
-                continue
+                logger.info("Face %d has possible hand overlap", index)
 
             # 3. InsightFace Liveness
             insight_score = 0.0
@@ -317,12 +280,14 @@ class MultiFaceEngine:
             )
             face_result["is_live"] = is_live
 
-            if not is_live:
-                face_result["occlusion_reason"] = pad_res.get("reason", "Liveness / Anti-spoof check failed")
-                results.append(face_result)
-                continue
+            if not is_live and not face_result["is_occluded"]:
+                face_result["occlusion_reason"] = pad_res.get(
+                    "reason",
+                    "Liveness check failed",
+                )
 
-            # 5. Recognition
+            # 5. Recognition: compare every detected face even when a
+            # liveness or heuristic occlusion check produces a warning.
             if face_result["_embedding"] is not None:
                 employee_id, score = self.find_best_match(face_result["_embedding"])
                 score = float(score)
