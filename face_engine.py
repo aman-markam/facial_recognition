@@ -16,7 +16,7 @@ from app.services.embedding_store import load_all_embeddings
 THRESHOLD = 0.50
 
 # InsightFace liveness threshold
-LIVE_THRESHOLD = 0.80
+LIVE_THRESHOLD = 0.70
 
 # Face quality (lowered limits for distant face detection)
 MIN_FACE_WIDTH = 40

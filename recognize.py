@@ -7,16 +7,102 @@ occlusion checking (cloth/scarf/hand), and records attendance for all recognized
 """
 
 import argparse
+from datetime import datetime, timedelta
 import sys
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
+from sqlalchemy.engine import make_url
 
-import database
+from app.core.config import settings
+
+# The SQLAlchemy engine is created on import, so select the kiosk database first.
+settings.DATABASE_URL = make_url(settings.DATABASE_URL).set(
+    database="face_attendance"
+).render_as_string(hide_password=False)
+
+from app.database.database import SessionLocal
+from app.models.attendance import Attendance
+from app.models.employee import Employee
 from app.services.multiface_tracker import MultiFaceTracker
 from app.core.liveness_config import liveness_config
+
+
+def _record_attendance(employee_code: str, action: str, confidence: float) -> tuple[bool, str]:
+    now = datetime.now()
+    today = now.date()
+    is_checkout = (action or "").lower().strip() in ["check_out", "checkout", "out"]
+
+    with SessionLocal() as db:
+        employee = (
+            db.query(Employee)
+            .filter(Employee.employee_code == employee_code)
+            .first()
+        )
+        if employee is None:
+            return False, f"Employee not found: {employee_code}"
+        if not employee.is_active:
+            return False, f"Employee is inactive: {employee_code} - {employee.name}"
+
+        open_attendance = (
+            db.query(Attendance)
+            .filter(
+                Attendance.employee_id == employee.id,
+                Attendance.check_out.is_(None),
+                Attendance.attendance_date.in_([today, today - timedelta(days=1)]),
+            )
+            .order_by(Attendance.attendance_date.desc())
+            .first()
+        )
+
+        if is_checkout:
+            if open_attendance is None:
+                return False, f"No active check-in record found: {employee_code} - {employee.name}"
+            if open_attendance.check_in is None:
+                return False, f"Check-in time is missing: {employee_code} - {employee.name}"
+
+            open_attendance.check_out = now.time()
+            check_in_datetime = datetime.combine(
+                open_attendance.attendance_date,
+                open_attendance.check_in,
+            )
+            check_out_datetime = datetime.combine(today, now.time())
+            working_seconds = max(
+                0,
+                (check_out_datetime - check_in_datetime).total_seconds(),
+            )
+            open_attendance.working_minutes = int(working_seconds // 60)
+            db.commit()
+            return True, f"Check-out successful: {employee_code} - {employee.name}"
+
+        if open_attendance is not None:
+            return False, f"Already checked in: {employee_code} - {employee.name}"
+
+        completed_attendance = (
+            db.query(Attendance)
+            .filter(
+                Attendance.employee_id == employee.id,
+                Attendance.attendance_date == today,
+                Attendance.check_out.is_not(None),
+            )
+            .first()
+        )
+        if completed_attendance is not None:
+            return False, f"Attendance already completed: {employee_code} - {employee.name}"
+
+        db.add(
+            Attendance(
+                employee_id=employee.id,
+                attendance_date=today,
+                check_in=now.time(),
+                status="PRESENT",
+                confidence=confidence,
+            )
+        )
+        db.commit()
+        return True, f"Check-in successful: {employee_code} - {employee.name}"
 
 
 def recognize_multiple_webcam(action: str = "check_in", camera_index: int = 0) -> list[dict]:
@@ -27,23 +113,16 @@ def recognize_multiple_webcam(action: str = "check_in", camera_index: int = 0) -
     print(f" MULTI-PERSON FACIAL ATTENDANCE KIOSK ({action.upper()})")
     print(f"==================================================")
 
-    # Initialize PostgreSQL database table if not present
-    try:
-        database.initialize()
-    except Exception as e:
-        print(f"❌ Database unavailable: {e}")
-        print(
-            "Set the PostgreSQL password in this PowerShell session and "
-            "run the command again:"
-        )
-        print('$env:FACE_DB_PASSWORD = "<your-postgres-password>"')
-        return []
-
     tracker = MultiFaceTracker()
     try:
-        employees_map = database.get_employees()
+        with SessionLocal() as db:
+            employees_map = {
+                str(employee.employee_code): employee.name
+                for employee in db.query(Employee).all()
+            }
     except Exception as e:
-        print(f"❌ Unable to load employees from the database: {e}")
+        print(f"❌ Database unavailable: {e}")
+        print("Verify DATABASE_URL points to the face_attendance PostgreSQL database.")
         return []
 
     # Open webcam with native high resolution
@@ -91,7 +170,14 @@ def recognize_multiple_webcam(action: str = "check_in", camera_index: int = 0) -
                         emp_id = str(emp_track.get("employee_id"))
                         emp_name = employees_map.get(emp_id, f"Employee {emp_id}")
 
-                        succ, msg = database.record_attendance(emp_id, emp_name, action=action)
+                        confidence = float(
+                            emp_track.get("recognition_confidence", 0.0) or 0.0
+                        )
+                        succ, msg = _record_attendance(
+                            emp_id,
+                            action,
+                            confidence,
+                        )
                         if succ:
                             print(f"✅ {msg}")
                             status_text = f"SUCCESS: {emp_name} ({act_title})"
